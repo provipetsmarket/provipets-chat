@@ -1,3 +1,7 @@
 {
-  "framework": "nextjs"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "node -e \"console.log('Chat sin dependencias externas')\"",
+  "buildCommand": "node scripts/build-storefront.mjs",
+  "outputDirectory": ".vercel/output"
 }
