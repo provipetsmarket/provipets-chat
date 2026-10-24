@@ -39,3 +39,7 @@ test('SSE handles UTF-8 split across chunks',async()=>{
  const body=new ReadableStream({start(c){c.enqueue(bytes.slice(0,at));c.enqueue(bytes.slice(at));c.close();}});
  const events=[];for await(const e of parseSSE(body))events.push(e);assert.equal(events[0].delta,'ñ');
 });
+
+test('streamed rate limits are classified for a helpful customer message',async()=>{
+ await assert.rejects(runAgent('Hola',null,()=>{},{key,fetcher:async()=>stream([{type:'response.failed',response:{error:{code:'rate_limit_exceeded'}}}])}),e=>e.status===429);
+});

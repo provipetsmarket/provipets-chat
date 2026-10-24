@@ -90,6 +90,7 @@ export async function runAgent(message, responseId, emit, {key, signal, fetcher=
         const error = Error('response_failed');
         error.code = event.error?.code || event.response?.error?.code || event.response?.incomplete_details?.reason;
         error.requestId = response.headers.get('x-request-id');
+        if (['rate_limit_exceeded', 'insufficient_quota'].includes(error.code)) error.status = 429;
         throw error;
       } else if (type.includes('mcp')) emit({type:'status', text:'Consultando la tienda…'});
     }
