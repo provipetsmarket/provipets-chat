@@ -1,0 +1,214 @@
+{% assign is_checkout_page = false %}
+{% if template == 'cart' or template == 'checkout' or template == 'revieworder' or template == 'success' %}
+  {% assign is_checkout_page = true %}
+{% endif %}
+{% assign is_customer_page = false %}
+{% if template == 'customer_account' or template == 'customer_address' or template == 'customer_details' or template == 'customer_login' or template == 'customer_reset_password' %}
+  {% assign is_customer_page = true %}
+{% endif %}
+{% assign is_category_page = false %}
+{% if template == 'category' or template == 'searchresults' %}
+  {% assign is_category_page = true %}
+{% endif %}
+<!doctype html>
+
+<html class="no-js" lang="{{ languages.first.locale }}" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    {{ options.head_code_top }}
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <meta name="description" content="{{ meta_description | default: store.name }}">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="robots" content="follow, all">
+
+    <link rel="preconnect" href="https://images.jumpseller.com">
+    <link rel="preconnect" href="https://cdnx.jumpseller.com">
+    <link rel="preconnect" href="https://assets.jumpseller.com">
+    <link rel="preconnect" href="https://files.jumpseller.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    {% render 'og_meta_tags' %}
+
+    {% for language in languages %}
+      <link rel="alternate" {% if languages.size > 1 %}
+          hreflang="{{ language.locale }}"
+        {% endif %} href="{{ language.url }}">
+    {% endfor %}
+
+    <link rel="canonical" href="{{ canonical_url }}">
+
+    {{ favicon }}
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous" defer></script>
+    {{ 'jquery-zoom/1.7.21/jquery.zoom.min.js' | public_asset_tag: 'defer' }}
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+
+    {% if store.autocomplete_access %}
+      <!-- Autocomplete search -->
+      {{ 'autocomplete/1.16.0/index.production.min.js' | public_asset_tag: 'defer' }}
+      <script src="//assets.jumpseller.com/public/autocomplete/jumpseller-autocomplete@1.0.0.min.js" data-suggest-categories="false" defer></script>
+    {% endif %}
+
+    {% unless template == 'success' %}
+      <!-- Swiper -->
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css">
+      <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js" defer></script>
+    {% endunless %}
+
+    {% if template == 'success' or template == 'customer_account' %}
+      <!-- jsZip -->
+      {{ 'jszip/3.10.1/jszip.min.js' | public_asset_tag }}
+    {% endif %}
+
+    {% render 'schema' %}
+
+    <link rel="stylesheet" href="{{ 'color_pickers.css' | asset }}">
+    <link rel="stylesheet" href="{{ 'app.css' | asset }}">
+    {% if is_customer_page %}<link rel="stylesheet" href="{{ 'customer.css' | asset }}">{% endif %}
+    {% if is_checkout_page %}<link rel="stylesheet" href="{{ 'checkout.css' | asset }}">{% endif %}
+    {{ 'aos/2.3.4/aos.css' | public_asset_tag }}
+
+    {% render 'theme_data' %}
+
+    {{ options.head_code_bottom }}
+    <meta name='google-site-verification' content='hrPdhxvdqizAKAH2JJKrsWOZxcZABONRAzwpc4tzR8E'/>
+    <meta name='google-site-verification' content='hrPdhxvdqizAKAH2JJKrsWOZxcZABONRAzwpc4tzR8E'/>
+    <style>
+      /* Deshabilitar selección de texto */
+      body {
+        -webkit-user-select: none; /* Safari */
+        -moz-user-select: none;    /* Firefox */
+        -ms-user-select: none;     /* Internet Explorer/Edge */
+        user-select: none;         /* Otros navegadores */
+      }
+    </style>
+  </head>
+
+  <body data-bundle-color="default">
+    <script src="{{ 'theme.js' | asset }}" defer></script>
+    <script src="{{ 'main.js' | asset }}" defer></script>
+    {% if is_category_page %}<script src="{{ 'category.js' | asset }}" defer></script>{% endif %}
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous" defer></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]'); // Initialize Bootstrap Tooltips
+        const tooltipList = [...tooltipTriggerList].map((tooltipTriggerEl) => new bootstrap.Tooltip(tooltipTriggerEl));
+      });
+    </script>
+
+    {{ options.body_code_top }}
+
+    <div class="main-container{% if is_checkout_page %} main-container--process{% endif %}" data-layout="{{ template }}">
+      <div class="toast-notification__wrapper {{ options.cart_notification_position }}"></div>
+      {{ content }}
+    </div>
+    {% render 'store_whatsapp' %}
+    {% render 'popup_age_verification' %}
+
+    {{ options.body_code_bottom }}
+
+    {{ 'aos/2.3.4/aos.js' | public_asset_tag }}
+    <script>
+      AOS.init();
+    </script>
+    {% comment %}
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Deshabilitar clic derecho
+        document.addEventListener('contextmenu', function(event) {
+          event.preventDefault();
+        });
+        // Deshabilitar selección de texto
+        document.addEventListener('selectstart', function(event) {
+          event.preventDefault();
+        });
+        // Deshabilitar teclado (Ctrl+C, Ctrl+V, etc.)
+        document.addEventListener('keydown', function(event) {
+          // Bloquear Ctrl+C (copiar), Ctrl+V (pegar), Ctrl+X (cortar)
+          if ((event.ctrlKey && (event.key === 'c' || event.key === 'v' || event.key === 'x')) ||
+              (event.metaKey && (event.key === 'c' || event.key === 'v' || event.key === 'x'))) {
+            event.preventDefault();
+          }
+        });
+      });
+    </script> {% endcomment %}
+    <style>
+      img {
+        -webkit-user-drag: none;
+        user-select: none;
+      }
+    </style>
+    <script>
+      document.addEventListener('contextmenu', function(event) {
+        if (event.target.tagName === 'IMG') {
+          event.preventDefault();
+        }
+      });
+    </script>
+    <!-- Elfsight AI Chatbot | Provipets AI Chatbot -->
+<script src="https://elfsightcdn.com/platform.js" async></script>
+<div class="elfsight-app-5d1238e1-bc0e-43ce-b3b8-552f0d6e4a6e" data-elfsight-app-lazy></div>
+
+<!-- INICIO CHAT PROVIPETS: Google Apps Script -->
+<script>
+(function () {
+  'use strict';
+  function mount() {
+    if (document.getElementById('provipets-google-chat')) return;
+    var url = 'https://script.google.com/macros/s/AKfycbwib6E2uKLb1vyxUOyzYAFMpmrgg7faz-djwqbdMMeg8wVHhgcuFHoOGg0_O4lRqo_T8w/exec';
+    var host = document.createElement('div');
+    host.id = 'provipets-google-chat';
+    // Isolate the widget from the store theme's CSS.
+    var root = host.attachShadow({mode:'open'});
+    root.innerHTML = '<style>' +
+      ':host{all:initial;position:fixed!important;left:16px!important;bottom:16px!important;z-index:2147483000!important;font:14px/1.4 system-ui,sans-serif;color:#163c38;user-select:text}' +
+      '*{box-sizing:border-box}button,a{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #e9b44c;outline-offset:3px}' +
+      '#launch{display:flex;align-items:center;gap:9px;min-height:52px;padding:13px 18px;border:0;border-radius:28px;background:#086f62;color:white;box-shadow:0 4px 18px #0003;font-weight:600}' +
+      '#panel{position:absolute;bottom:66px;left:0;width:min(400px,calc(100vw - 32px));height:min(640px,calc(100dvh - 100px));height:min(640px,calc(100vh - 100px));background:white;border:1px solid #c8dbd5;border-radius:16px;box-shadow:0 8px 36px #0003;overflow:hidden;display:flex;flex-direction:column}' +
+      '#panel[hidden]{display:none}.bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#edf5f2;gap:12px;min-height:42px}' +
+      '.bar a{color:#086f62;font-size:12px;text-decoration:underline}.bar button{border:0;border-radius:8px;background:transparent;color:#163c38;font-size:24px;line-height:1;padding:2px 7px;min-width:32px;min-height:32px}' +
+      'iframe{display:block;flex:1;width:100%;min-height:0;border:0;background:white}' +
+      '@media(max-width:480px){:host{left:10px!important;bottom:12px!important}#panel{width:calc(100vw - 20px);bottom:64px;height:calc(100vh - 100px);height:calc(100dvh - 100px)}}' +
+      '</style>' +
+      '<section id="panel" role="region" aria-label="Asistente Provipets Market" hidden>' +
+      '<div class="bar"><a id="external" target="_blank" rel="noopener noreferrer">Abrir en otra ventana</a><button id="close" type="button" aria-label="Cerrar chat">×</button></div>' +
+      '</section>' +
+      '<button id="launch" type="button" aria-expanded="false" aria-controls="panel"><span aria-hidden="true">✉</span> Pregúntanos</button>';
+    var panel = root.getElementById('panel');
+    var launch = root.getElementById('launch');
+    var close = root.getElementById('close');
+    root.getElementById('external').href = url;
+    var frame;
+    function setOpen(open) {
+      if (open && !frame) {
+        frame = document.createElement('iframe');
+        frame.title = 'Chat de compras Provipets Market';
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
+        frame.src = url;
+        panel.appendChild(frame);
+      }
+      panel.hidden = !open;
+      launch.setAttribute('aria-expanded',String(open));
+      if (open) close.focus(); else launch.focus();
+    }
+    launch.addEventListener('click',function () {setOpen(panel.hidden);});
+    close.addEventListener('click',function () {setOpen(false);});
+    root.addEventListener('keydown',function (event) {if (event.key === 'Escape' && !panel.hidden) setOpen(false);});
+    document.body.appendChild(host);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',mount,{once:true});
+  else mount();
+})();
+</script>
+<!-- FIN CHAT PROVIPETS -->
+
+  </body>
+</html>

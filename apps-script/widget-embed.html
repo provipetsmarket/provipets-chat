@@ -1,0 +1,52 @@
+<!-- INICIO CHAT PROVIPETS: Google Apps Script -->
+<script>
+(function () {
+  'use strict';
+  function mount() {
+    if (document.getElementById('provipets-google-chat')) return;
+    var url = 'https://script.google.com/macros/s/AKfycbwib6E2uKLb1vyxUOyzYAFMpmrgg7faz-djwqbdMMeg8wVHhgcuFHoOGg0_O4lRqo_T8w/exec';
+    var host = document.createElement('div');
+    host.id = 'provipets-google-chat';
+    // Isolate the widget from the store theme's CSS.
+    var root = host.attachShadow({mode:'open'});
+    root.innerHTML = '<style>' +
+      ':host{all:initial;position:fixed!important;left:16px!important;bottom:16px!important;z-index:2147483000!important;font:14px/1.4 system-ui,sans-serif;color:#163c38;user-select:text}' +
+      '*{box-sizing:border-box}button,a{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #e9b44c;outline-offset:3px}' +
+      '#launch{display:flex;align-items:center;gap:9px;min-height:52px;padding:13px 18px;border:0;border-radius:28px;background:#086f62;color:white;box-shadow:0 4px 18px #0003;font-weight:600}' +
+      '#panel{position:absolute;bottom:66px;left:0;width:min(400px,calc(100vw - 32px));height:min(640px,calc(100dvh - 100px));height:min(640px,calc(100vh - 100px));background:white;border:1px solid #c8dbd5;border-radius:16px;box-shadow:0 8px 36px #0003;overflow:hidden;display:flex;flex-direction:column}' +
+      '#panel[hidden]{display:none}.bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#edf5f2;gap:12px;min-height:42px}' +
+      '.bar a{color:#086f62;font-size:12px;text-decoration:underline}.bar button{border:0;border-radius:8px;background:transparent;color:#163c38;font-size:24px;line-height:1;padding:2px 7px;min-width:32px;min-height:32px}' +
+      'iframe{display:block;flex:1;width:100%;min-height:0;border:0;background:white}' +
+      '@media(max-width:480px){:host{left:10px!important;bottom:12px!important}#panel{width:calc(100vw - 20px);bottom:64px;height:calc(100vh - 100px);height:calc(100dvh - 100px)}}' +
+      '</style>' +
+      '<section id="panel" role="region" aria-label="Asistente Provipets Market" hidden>' +
+      '<div class="bar"><a id="external" target="_blank" rel="noopener noreferrer">Abrir en otra ventana</a><button id="close" type="button" aria-label="Cerrar chat">×</button></div>' +
+      '</section>' +
+      '<button id="launch" type="button" aria-expanded="false" aria-controls="panel"><span aria-hidden="true">✉</span> Pregúntanos</button>';
+    var panel = root.getElementById('panel');
+    var launch = root.getElementById('launch');
+    var close = root.getElementById('close');
+    root.getElementById('external').href = url;
+    var frame;
+    function setOpen(open) {
+      if (open && !frame) {
+        frame = document.createElement('iframe');
+        frame.title = 'Chat de compras Provipets Market';
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
+        frame.src = url;
+        panel.appendChild(frame);
+      }
+      panel.hidden = !open;
+      launch.setAttribute('aria-expanded',String(open));
+      if (open) close.focus(); else launch.focus();
+    }
+    launch.addEventListener('click',function () {setOpen(panel.hidden);});
+    close.addEventListener('click',function () {setOpen(false);});
+    root.addEventListener('keydown',function (event) {if (event.key === 'Escape' && !panel.hidden) setOpen(false);});
+    document.body.appendChild(host);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',mount,{once:true});
+  else mount();
+})();
+</script>
+<!-- FIN CHAT PROVIPETS -->
