@@ -1,7 +1,7 @@
-import {createHmac, randomUUID, timingSafeEqual} from 'node:crypto';
+import {createHmac, timingSafeEqual} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 const agentConfig = JSON.parse(readFileSync(new URL('./agent.json', import.meta.url)));
-const BASE = 'https://api.openai.com/v1/agents/sessions';
+const BASE = 'https://api.openai.com/v1/responses';
 const PROJECT = 'proj_jtanwDH277T6LpGAyghNfzEs';
 const limits = new Map();
 
@@ -18,7 +18,7 @@ export function verifySession(token, key) {
   const supplied=Buffer.from(signature,'base64url');
   if (supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) throw Error('invalid_session');
   const value=JSON.parse(Buffer.from(data,'base64url').toString());
-  if (value.expires<Date.now() || !/^sess_[a-zA-Z0-9_-]+$/.test(value.id)) throw Error('invalid_session');
+  if (value.expires<Date.now() || !/^resp_[a-zA-Z0-9_-]+$/.test(value.id)) throw Error('invalid_session');
   return value.id;
 }
 
@@ -35,49 +35,67 @@ export async function* parseSSE(body) {
   }
 }
 
-export async function runAgent(message, sessionId, emit, {key, signal, fetcher=fetch}) {
-  const headers={'Authorization':`Bearer ${key}`, 'OpenAI-Project':PROJECT, 'OpenAI-Beta':'agents=v1', 'Content-Type':'application/json'};
-  async function call(url, payload) {
-    const response=await fetcher(url,{method:payload?'POST':'GET',headers:{...headers,...(payload?{'Idempotency-Key':randomUUID()}:{})},
-      body:payload?JSON.stringify(payload):undefined,signal});
-    if(!response.ok) {const error=Error('upstream_error');error.status=response.status;error.requestId=response.headers.get('x-request-id');throw error;}
-    return response;
+export async function runAgent(message, responseId, emit, {key, signal, fetcher=fetch}) {
+  // Keep credentials and conversation identifiers on the server / signed token.
+  // Only catalog reads are exposed, never cart, checkout, order or account tools.
+  const payload = {
+    model: process.env.OPENAI_MODEL || agentConfig.agent.model,
+    instructions: agentConfig.agent.instructions,
+    reasoning: {effort: agentConfig.agent.reasoning.effort},
+    text: agentConfig.agent.text,
+    input: message,
+    ...(responseId ? {previous_response_id: responseId} : {}),
+    tools: [{type: 'mcp', server_label: 'provipets_catalog',
+      server_url: 'https://www.provipets.co/api/mcp',
+      allowed_tools: ['search_products', 'get_product'], require_approval: 'never'}],
+    max_output_tokens: 1800, max_tool_calls: 6, stream: true, store: true
+  };
+  const response = await fetcher(BASE, {method: 'POST', signal,
+    headers: {Authorization: `Bearer ${key}`, 'OpenAI-Project': PROJECT,
+      'Content-Type': 'application/json', Accept: 'text/event-stream'},
+    body: JSON.stringify(payload)});
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    const error = Error('upstream_error');
+    error.status = response.status;
+    error.code = detail.error?.code;
+    error.requestId = response.headers.get('x-request-id');
+    throw error;
   }
-  // Subscribe before posting a follow-up to avoid losing early events.
-  const response=sessionId ? await call(`${BASE}/${sessionId}/events?stream=true`) : await call(BASE,{
-    ...agentConfig,environment:{type:'none'},input:message,stream:true
-  });
-  if(!response.headers.get('content-type')?.includes('text/event-stream')) throw Error('invalid_stream');
+  if (!response.headers.get('content-type')?.includes('text/event-stream')) throw Error('invalid_stream');
+  let receivedText = false;
   try {
-    if(sessionId) await call(`${BASE}/${sessionId}/events`,{events:[{
-      type:'agent.session.input.message',input:[{role:'user',content:[{type:'input_text',text:message}]}]
-    }]}).then(r=>r.arrayBuffer());
-    let announced=false;
-    for await(const event of parseSSE(response.body)) {
-      sessionId=event.session_id || event.session?.id || sessionId;
-      if(sessionId && !announced) {emit({type:'session',token:signSession(sessionId,key)});announced=true;}
-      const type=event.type||'';
-      if(type.endsWith('output_text.delta') || type.endsWith('output_text.done')) {
-        emit(Object.fromEntries(['type','text','delta','item_id','output_index','content_index'].filter(k=>k in event).map(k=>[k,event[k]])));
-      } else if(type==='agent.session.requires_action') {
-        const state=await call(`${BASE}/${sessionId}`).then(r=>r.json());
-        for(const action of state.required_actions||[]) {
-          if(action.type!=='function_call') throw Error('configuration_required');
-          await call(`${BASE}/${sessionId}/events`,{events:[{
-            type:'agent.session.input.tool_result',turn_id:action.turn_id,call_id:action.call_id,
-            success:false,error:'No local function handler configured. Use the saved catalog MCP tools.'
-          }]}).then(r=>r.arrayBuffer());
+    for await (const event of parseSSE(response.body)) {
+      const type = event.type || '';
+      if (type === 'response.output_text.delta' || type === 'response.output_text.done') {
+        if (event.delta || event.text) receivedText = true;
+        emit(Object.fromEntries(['type','text','delta','item_id','output_index','content_index']
+          .filter(k => k in event).map(k => [k, event[k]])));
+      } else if (type === 'response.completed') {
+        const result = event.response;
+        if (result?.status !== 'completed') throw Error('response_incomplete');
+        if (result.output?.some(item => item.type === 'mcp_approval_request')) throw Error('configuration_required');
+        if (!receivedText) {
+          const text = (result.output || []).filter(item => item.type === 'message')
+            .flatMap(item => item.content || []).filter(part => part.type === 'output_text')
+            .map(part => part.text).join('\n');
+          if (!text) throw Error('empty_response');
+          emit({type: 'response.output_text.done', text});
         }
-      } else if(type==='agent.session.turn.completed' && !event.turn?.subagent_id) {
-        emit({type:'complete'});return;
-      } else if(['error','agent.session.failed','agent.session.environment.failed'].includes(type) ||
-        (['agent.session.turn.failed','agent.session.turn.cancelled'].includes(type) && !event.turn?.subagent_id)) {
-        const error=Error('agent_failed');error.code=event.error?.code||event.turn?.error?.code;throw error;
-      } else if(type.includes('mcp') || type.includes('tool')) emit({type:'status',text:'Consultando la tienda…'});
+        if (!/^resp_[a-zA-Z0-9_-]+$/.test(result.id)) throw Error('invalid_response');
+        emit({type: 'session', token: signSession(result.id, key)});
+        emit({type: 'complete'});
+        return;
+      } else if (['error','response.failed','response.incomplete'].includes(type)) {
+        const error = Error('response_failed');
+        error.code = event.error?.code || event.response?.error?.code || event.response?.incomplete_details?.reason;
+        error.requestId = response.headers.get('x-request-id');
+        throw error;
+      } else if (type.includes('mcp')) emit({type:'status', text:'Consultando la tienda…'});
     }
     throw Error('stream_interrupted');
   } finally {
-    if(response.body && !response.body.locked) await response.body.cancel().catch(()=>{});
+    if (response.body && !response.body.locked) await response.body.cancel().catch(() => {});
   }
 }
 
@@ -102,7 +120,7 @@ export default async function handler(req,res) {
   const entry=limits.get(address)||{count:0,until:now+600000};
   if(entry.count>=30) return json(429,{error:'Has realizado varias consultas. Inténtalo en unos minutos.'});
   entry.count++;limits.set(address,entry);
-  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),55000);
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),180000);
   res.on('close',()=>controller.abort());
   res.setHeader('Content-Type','application/x-ndjson; charset=utf-8');
   res.setHeader('X-Accel-Buffering','no');
@@ -111,7 +129,7 @@ export default async function handler(req,res) {
     await runAgent(body.message.trim(),id,event=>{if(!res.destroyed)res.write(JSON.stringify(event)+'\n');},{key,signal:controller.signal});
   } catch(error) {
     console.error('Agent request failed', {kind:error.message,status:error.status,code:error.code,requestId:error.requestId});
-    const text=error.status===401 || error.status===403 ? 'La conexión con OpenAI necesita revisión. Inténtalo más tarde.' :
+    const text=error.name==='AbortError' ? 'La consulta tardó demasiado. Pulsa Nuevo chat e inténtalo de nuevo.' : error.status===401 || error.status===403 ? 'La conexión con OpenAI necesita revisión. Inténtalo más tarde.' :
       error.status===429 ? 'El servicio está ocupado o sin saldo disponible. Inténtalo más tarde.' :
       'No pude completar la consulta. Pulsa Nuevo chat antes de volver a intentarlo.';
     if(!res.destroyed)res.write(JSON.stringify({type:'error',text})+'\n');

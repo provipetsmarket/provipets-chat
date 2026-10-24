@@ -6,7 +6,7 @@ await cp(new URL('../storefront/public/', import.meta.url), new URL('static/', o
 await cp(new URL('../storefront/server/', import.meta.url), new URL('functions/api/chat.func/', output), { recursive: true });
 await writeFile(new URL('functions/api/chat.func/.vc-config.json', output), JSON.stringify({
   runtime: 'nodejs22.x', handler: 'chat.mjs', launcherType: 'Nodejs',
-  supportsResponseStreaming: true, maxDuration: 60
+  supportsResponseStreaming: true, maxDuration: 240
 }));
 await writeFile(new URL('config.json', output), JSON.stringify({version: 3, routes: [
   {src: '/widget.js', headers: {'Cache-Control': 'public, max-age=300'}, continue: true},

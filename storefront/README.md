@@ -1,46 +1,34 @@
-# Asistente Provipets Market para Vercel
+# Chat Provipets Market
 
-El despliegue usa esta aplicación independiente. La plantilla Next.js anterior permanece en el repositorio, pero no se instala ni se construye.
+El sitio utiliza llamadas HTTP directas a OpenAI Responses API y el MCP oficial de la tienda. No ejecuta sesiones del agente guardado, para evitar el bloqueo observado en esa ruta. Reutiliza el modelo, instrucciones y texto de `server/agent.json`; cambiar el agente en el panel de OpenAI no sincroniza este archivo automáticamente.
 
-## Activar
+## Configuración
 
-1. En Vercel → Environment Variables, añadir `OPENAI_API_KEY` para Production y Preview. Debe ser una clave del proyecto `proj_jtanwDH277T6LpGAyghNfzEs`, con permisos `api.agents.read`, `api.agents.write` y `api.responses.write` y saldo habilitado. No usar NEXT_PUBLIC ni subir la clave al repositorio.
-2. Desplegar el commit que incorpora `scripts/build-storefront.mjs`. La configuración está en vercel.json y no requiere Postgres, Redis, AI Gateway ni Vercel Blob.
-3. Abrir la URL del despliegue. Se verá el chat aun sin clave; para responder necesita la variable anterior.
-4. Probar un mensaje y después una consulta de catálogo. No se ha verificado una respuesta real desde este alojamiento sin credenciales.
+En Vercel, configurar `OPENAI_API_KEY` del proyecto `proj_jtanwDH277T6LpGAyghNfzEs` con permiso de escritura Responses y saldo habilitado. La clave solo se usa en el servidor, nunca con un prefijo NEXT_PUBLIC. El modelo predeterminado es el de agent.json; `OPENAI_MODEL` permite una sustitución explícita si fuera necesaria.
 
-## Insertar en Jumpseller
+La construcción `node scripts/build-storefront.mjs` genera el sitio y `/api/chat` en Node.js 22. No necesita base de datos ni dependencias adicionales. La función permite 240 segundos; la solicitud se cancela a los 180 segundos y no se reintenta automáticamente para evitar duplicados.
 
-Con el dominio HTTPS confirmado, insertar antes de `</body>`:
+Solo se permiten `search_products` y `get_product`, herramientas de lectura verificadas del catálogo. OpenAI realiza esas consultas mediante MCP. Las respuestas se transmiten progresivamente al navegador. La continuidad utiliza previous_response_id dentro de un token firmado de una hora; el navegador no puede elegir una conversación ajena sin su firma. Los tokens anteriores de sesiones Agents se rechazan: usar Nuevo chat después de actualizar.
 
-```html
-<script defer src="https://DOMINIO-DEL-CHAT/widget.js"></script>
-```
+El límite básico por IP es local a cada instancia y no es un control distribuido. Las respuestas se almacenan en OpenAI con store:true para dar continuidad; esta versión no implementa borrado automático. No se habilitan consultas de pedidos ni datos personales.
 
-El chat vive dentro de un iframe. Asegurarse de que el despliegue sea accesible para los visitantes, sin el inicio de sesión de protección de Vercel. La clave de API permanece en el servidor. La conversación utiliza un token firmado de una hora en memoria del navegador; no requiere cookies de terceros ni almacena datos del pedido.
-
-## Funcionamiento
-
-- `server/agent.json`: ID del agente guardado y overrides exactos de modelo, instrucciones, razonamiento y texto proporcionados. Los demás ajustes, incluidas las herramientas MCP, se heredan del agente guardado.
-- `server/chat.mjs`: llamadas HTTP directas mediante fetch de Node, sin SDK ni dependencias. La API maneja el MCP del catálogo desde su servicio; entorno none, sin executor ni sandbox.
-- `api.py`: cliente de terminal que realiza las llamadas HTTP usando **curl**, lee OPENAI_API_KEY y transmite todos los eventos JSON. Ejecución: `python3 storefront/api.py 'Hola'`. Para continuar: `python3 storefront/api.py --session sess_REEMPLAZAR 'Otra pregunta'`. Requiere Python y curl instalados.
-- `public/index.html`: chat de cliente con mensajes incrementales, estado y errores. No muestra eventos internos ni resúmenes de razonamiento.
-- `scripts/build-storefront.mjs`: genera Build Output API v3 para Vercel, con función Node.js 22 y límite de 60 segundos. La solicitud a OpenAI se cancela a los 55 segundos. Si se interrumpe, no reenvía mensajes automáticamente.
-
-El límite básico por dirección de conexión vive en memoria y puede reiniciarse o variar entre instancias. No sustituye los límites de gasto ni un control de abuso distribuido. Configurar controles de gasto de OpenAI y el firewall de Vercel antes de dirigir tráfico importante. Las sesiones OpenAI permanecen en el proyecto y se pueden revisar allí; esta versión no implementa borrado automático.
-
-## Validación local
+## Verificar
 
 ```bash
-node scripts/build-storefront.mjs
 node --test storefront/test-chat.mjs
+node scripts/build-storefront.mjs
 ```
 
-Las pruebas usan respuestas simuladas; comprueban conservación del agente, continuidad de la sesión, streaming, firma de tokens y errores. No requieren claves reales.
+Las pruebas locales simulan la API; no sustituyen una prueba real del despliegue con saludo, producto/precio y un mensaje de seguimiento. El catálogo MCP se verificó mediante tools/list y una búsqueda real de Royal Canin. La respuesta real de OpenAI debe comprobarse después de desplegar.
 
-Documentación:
-- https://developers.openai.com/api/docs/guides/agents-api/overview
-- https://developers.openai.com/api/docs/guides/agents-api/configuration
-- https://developers.openai.com/api/docs/guides/agents-api/sessions/events
-- https://developers.openai.com/api/docs/guides/agents-api/tools/mcp
-- https://vercel.com/docs/build-output-api/primitives
+`api.py` se conserva como cliente histórico de Agents API; no corresponde a la conexión actual del sitio y no debe usarse para validar esta versión.
+
+## Jumpseller
+
+Después de verificar el chat y confirmar un dominio público sin protección de Vercel, insertar antes de </body>:
+
+```html
+<script defer src="https://DOMINIO-CONFIRMADO/widget.js"></script>
+```
+
+Documentación: https://developers.openai.com/api/docs/guides/tools-connectors-mcp y https://vercel.com/docs/build-output-api/primitives
