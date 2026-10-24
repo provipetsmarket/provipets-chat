@@ -59,6 +59,7 @@ export async function runAgent(message, responseId, emit, {key, signal, fetcher=
     const error = Error('upstream_error');
     error.status = response.status;
     error.code = detail.error?.code;
+    error.detail = String(detail.error?.message || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').slice(0,1200);
     error.requestId = response.headers.get('x-request-id');
     throw error;
   }
@@ -90,6 +91,7 @@ export async function runAgent(message, responseId, emit, {key, signal, fetcher=
         const error = Error('response_failed');
         error.code = event.error?.code || event.response?.error?.code || event.response?.incomplete_details?.reason;
         error.requestId = response.headers.get('x-request-id');
+        error.detail = String(event.error?.message || event.response?.error?.message || '').replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').slice(0,1200);
         if (['rate_limit_exceeded', 'insufficient_quota'].includes(error.code)) error.status = 429;
         throw error;
       } else if (type.includes('mcp')) emit({type:'status', text:'Consultando la tienda…'});
@@ -129,9 +131,10 @@ export default async function handler(req,res) {
   try {
     await runAgent(body.message.trim(),id,event=>{if(!res.destroyed)res.write(JSON.stringify(event)+'\n');},{key,signal:controller.signal});
   } catch(error) {
-    console.error('Agent request failed', {kind:error.message,status:error.status,code:error.code,requestId:error.requestId});
+    console.error('Agent request failed', {kind:error.message,status:error.status,code:error.code,requestId:error.requestId,detail:error.detail});
     const text=error.name==='AbortError' ? 'La consulta tardó demasiado. Pulsa Nuevo chat e inténtalo de nuevo.' : error.status===401 || error.status===403 ? 'La conexión con OpenAI necesita revisión. Inténtalo más tarde.' :
-      error.status===429 ? 'El servicio está ocupado o sin saldo disponible. Inténtalo más tarde.' :
+      error.code==='rate_limit_exceeded' ? 'Se alcanzó el límite de uso de OpenAI. Espera un momento antes de volver a consultar.' :
+      error.status===429 ? 'La conexión con OpenAI alcanzó un límite de uso o facturación. Inténtalo más tarde.' :
       'No pude completar la consulta. Pulsa Nuevo chat antes de volver a intentarlo.';
     if(!res.destroyed)res.write(JSON.stringify({type:'error',text})+'\n');
   } finally {clearTimeout(timeout);res.end();}
