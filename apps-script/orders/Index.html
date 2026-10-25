@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <base target="_blank">
+  <style>
+    *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;color:#163c38;background:#f4f8f7}
+    .app{height:100vh;height:100dvh;max-width:820px;margin:auto;display:flex;flex-direction:column;background:white}
+    header{background:#086f62;color:white;padding:18px 20px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0}header p{margin:2px 0 0;font-size:13px;color:#d6eeea}
+    button,textarea{font:inherit}button{cursor:pointer;border:0;border-radius:12px;padding:11px 15px;background:#086f62;color:white}
+    header button{background:#ffffff20;border:1px solid #ffffff60;font-size:13px;white-space:nowrap}
+    button:disabled{opacity:.55;cursor:wait}button:focus-visible,textarea:focus-visible{outline:3px solid #e9b44c;outline-offset:2px}
+    #messages{flex:1;overflow:auto;padding:22px 18px;display:flex;flex-direction:column;gap:16px}
+    .message{max-width:90%;padding:13px 16px;border-radius:16px;background:#edf5f2;white-space:pre-wrap;overflow-wrap:anywhere;align-self:flex-start}
+    .user{background:#086f62;color:white;align-self:flex-end}.error{background:#fff1df;color:#75460a}.message a{color:inherit;text-decoration:underline}
+    #status{min-height:24px;padding:0 20px;color:#496b64;font-size:13px}form{display:flex;gap:10px;padding:12px 16px 18px;border-top:1px solid #e2ebe7;align-items:flex-end}
+    textarea{flex:1;min-width:0;resize:none;border:1px solid #b8cfc7;border-radius:12px;padding:11px 12px;min-height:48px;max-height:130px;color:#163c38;background:white}
+    @media(max-width:420px){header{padding:14px 12px}h1{font-size:16px}#messages{padding:16px 12px}.message{max-width:95%}form{padding:10px 12px 14px}button{padding:11px 12px}}
+  
+    .tabs{display:flex;padding:8px 16px;gap:8px;border-bottom:1px solid #e2ebe7}.tabs button{background:#edf5f2;color:#086f62;padding:8px 12px}.tabs button[aria-pressed="true"]{background:#086f62;color:white}
+    [hidden]{display:none!important}#orders{overflow:auto;flex:1;padding:18px}#orders h2{font-size:19px;margin:0 0 8px}#orders p{margin:8px 0}#orders form{display:grid;padding:12px 0;border:0;gap:12px}#orders label{display:grid;gap:5px}#orders input,#orders select{font:inherit;border:1px solid #b8cfc7;border-radius:10px;padding:11px;width:100%;background:white;color:#163c38}#order-result{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf5f2;border-radius:12px;padding:14px;margin-top:14px}#order-result:empty{display:none}.note{font-size:13px;color:#496b64}
+  </style>
+</head>
+<body>
+<main class="app">
+  <header><div><h1>Provipets Market</h1><p>Tu asistente de compras</p></div><button type="button" id="reset">Nuevo chat</button></header>
+  <nav class="tabs" aria-label="Tipo de consulta"><button id="catalog-tab" type="button" aria-pressed="true">Productos</button><button id="orders-tab" type="button" aria-pressed="false">Consultar mi pedido</button></nav>
+  <section id="orders" aria-label="Consulta privada de pedidos" hidden>
+    <h2>Consulta tu pedido</h2>
+    <p>Compras en Provipets y marketplaces. Consulta los productos y números de guía registrados en nuestra plantilla.</p>
+    <p class="note">Para proteger tu información, enviaremos un código al correo registrado en la compra. Si no tienes acceso a ese correo o no está registrado, solicita atención en el canal donde compraste.</p>
+    <form id="order-request">
+      <label>¿Dónde compraste?<select id="order-platform" required><option value="">Selecciona</option><option value="WEB">Web Provipets</option><option value="ADDI">Addi</option><option value="PCO">Puntos Colombia</option><option value="FALABELLA">Falabella</option><option value="ML">Mercado Libre</option><option value="DIRECTO">Compra directa / otro canal directo</option></select></label>
+      <label>Número de pedido<input id="order-number" required maxlength="100" autocomplete="off" placeholder="El número que aparece en tu compra"></label>
+      <label>Correo de la compra<input id="order-email" type="email" required maxlength="254" autocomplete="email"></label>
+      <button id="order-send" type="submit">Enviar código de verificación</button>
+    </form>
+    <form id="order-verify" hidden><label>Código recibido por correo<input id="order-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button id="order-check" type="submit">Ver mi pedido</button><button id="order-restart" type="button">Volver a ingresar datos</button></form>
+    <p id="order-status" role="status" aria-live="polite"></p><div id="order-result" role="region" aria-label="Resultado de tu pedido" tabindex="-1"></div>
+  </section>
+  <div id="messages" role="log" aria-label="Conversación" aria-live="polite"></div>
+  <div id="status" role="status"></div>
+  <form id="form"><textarea id="input" rows="2" maxlength="2000" aria-label="Tu mensaje" placeholder="¿Qué producto estás buscando?" required></textarea><button id="send" type="submit">Enviar</button></form>
+</main>
+<script>
+  (() => {
+    'use strict';
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('input');
+    const status = document.getElementById('status');
+    const send = document.getElementById('send');
+    const reset = document.getElementById('reset');
+    let token = null, busy = false;
+
+    // Build nodes, never interpret model/customer text as HTML.
+    function add(text, role) {
+      const bubble = document.createElement('div');
+      bubble.className = 'message ' + (role || '');
+      const links = /\[([^\]\n]+)\]\((https:\/\/[^\s)]+)\)|(https:\/\/[^\s<>]+)/g;
+      let start = 0;
+      for (const match of text.matchAll(links)) {
+        bubble.append(document.createTextNode(text.slice(start, match.index)));
+        let url = match[2] || match[3];
+        let suffix = '';
+        if (!match[2]) { const tail = url.match(/[.,;!?)]+$/); if (tail) { suffix = tail[0]; url = url.slice(0,-suffix.length); } }
+        const anchor = document.createElement('a');
+        anchor.textContent = match[1] || url;
+        anchor.href = url; anchor.target = '_blank'; anchor.rel = 'noopener noreferrer';
+        bubble.append(anchor,document.createTextNode(suffix));
+        start = match.index + match[0].length;
+      }
+      bubble.append(document.createTextNode(text.slice(start)));
+      messages.append(bubble); messages.scrollTop = messages.scrollHeight;
+    }
+    function setBusy(value) { busy = value; send.disabled = value; reset.disabled = value; input.disabled = value; status.textContent = value ? 'Consultando, espera un momento…' : ''; }
+    function fresh() { token = null; messages.replaceChildren(); add('¡Hola! Soy el asistente de Provipets Market. ¿Qué producto estás buscando?'); input.value = ''; status.textContent = ''; input.focus(); }
+    reset.addEventListener('click',fresh);
+    document.getElementById('form').addEventListener('submit',event => {
+      event.preventDefault();
+      const message = input.value.trim();
+      if (!message || busy) return;
+      const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
+      const requestId = Array.from(bytes,b => b.toString(16).padStart(2,'0')).join('');
+      add(message,'user'); input.value = ''; setBusy(true);
+      google.script.run.withSuccessHandler(result => {
+        setBusy(false);
+        if (result && result.token) token = result.token;
+        if (result && typeof result.text === 'string') add(result.text,result.ok ? '' : 'error');
+        else add('No pude completar la consulta. Inténtalo nuevamente.','error');
+        if (result && result.ok && result.remaining === 0) status.textContent = 'Llegaste a 20 consultas. Pulsa Nuevo chat para continuar.';
+        input.focus();
+      }).withFailureHandler(() => {
+        setBusy(false); add('No pude conectar con el chat. Espera un momento y vuelve a consultar.','error'); input.focus();
+      }).chat(message,token,requestId);
+    });
+    input.addEventListener('keydown',event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('form').requestSubmit(); } });
+    fresh();
+  })();
+</script>
+
+<script>
+(() => {
+  const byId = id => document.getElementById(id);
+  let challenge=null, working=false;
+  const status=byId('order-status');
+  function switchTab(orders){
+    byId('orders').hidden=!orders;
+    ['messages','status','form'].forEach(id=>byId(id).hidden=orders);
+    byId('catalog-tab').setAttribute('aria-pressed',String(!orders));
+    byId('orders-tab').setAttribute('aria-pressed',String(orders));
+  }
+  byId('reset').addEventListener('click',()=>{if(working)return;challenge=null;byId('order-result').textContent='';byId('order-request').reset();byId('order-verify').reset();byId('order-request').hidden=false;byId('order-verify').hidden=true;status.textContent='';switchTab(false);});
+  byId('catalog-tab').addEventListener('click',()=>switchTab(false));
+  byId('orders-tab').addEventListener('click',()=>switchTab(true));
+  function busy(value){working=value;byId('reset').disabled=value;['order-send','order-check','order-restart'].forEach(id=>byId(id).disabled=value);}
+  function failure(){busy(false);status.textContent='No pude completar la verificación. Inténtalo más tarde o solicita atención en el canal de compra.';}
+  byId('order-request').addEventListener('submit',event=>{
+    event.preventDefault();if(working)return;
+    busy(true);byId('order-result').textContent='';status.textContent='Verificando los datos y preparando el código…';
+    google.script.run.withSuccessHandler(result=>{
+      busy(false);status.textContent=result.text || 'No pude completar la consulta.';
+      if(result.ok && result.challenge){challenge=result.challenge;byId('order-request').hidden=true;byId('order-verify').hidden=false;byId('order-code').value='';byId('order-code').focus();}
+    }).withFailureHandler(failure).requestOrderCode(byId('order-platform').value,byId('order-number').value,byId('order-email').value);
+  });
+  byId('order-verify').addEventListener('submit',event=>{
+    event.preventDefault();if(working)return;busy(true);status.textContent='Verificando el código…';
+    google.script.run.withSuccessHandler(result=>{
+      busy(false);
+      if(!result.ok || !result.order){status.textContent=result.text || 'No pude verificar el código.';return;}
+      challenge=null;byId('order-verify').hidden=true;byId('order-request').hidden=false;
+      byId('order-email').value='';byId('order-code').value='';status.textContent='Pedido verificado.';
+      const order=result.order;
+      const lines=['Pedido: '+order.number,''];
+      order.items.forEach((item,i)=>{
+        lines.push((i+1)+'. '+(item.product || 'Producto sin descripción registrada'));
+        if(item.quantity)lines.push('Cantidad: '+item.quantity);
+        lines.push(item.guide ? 'Guía registrada: '+item.guide : 'Sin número de guía registrado en la plantilla.');
+        if(item.carrier)lines.push('Transportadora: '+item.carrier);
+        lines.push('');
+      });
+      lines.push('Información del archivo guardado en Drive: '+new Date(order.updated).toLocaleString('es-CO',{timeZone:'America/Bogota'}));
+      lines.push('Una guía registrada no confirma por sí sola la entrega. No disponemos aquí de seguimiento en tiempo real de la transportadora.');
+      byId('order-result').textContent=lines.join('\n');byId('order-result').focus();
+    }).withFailureHandler(failure).verifyOrderCode(challenge,byId('order-code').value.trim());
+  });
+  byId('order-restart').addEventListener('click',()=>{challenge=null;byId('order-verify').hidden=true;byId('order-request').hidden=false;byId('order-code').value='';status.textContent='';});
+})();
+</script>
+</body>
+</html>
