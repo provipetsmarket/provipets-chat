@@ -10,19 +10,19 @@
     // Isolate the widget from the store theme's CSS.
     var root = host.attachShadow({mode:'open'});
     root.innerHTML = '<style>' +
-      ':host{all:initial;position:fixed!important;left:16px!important;bottom:16px!important;z-index:2147483000!important;font:14px/1.4 system-ui,sans-serif;color:#163c38;user-select:text}' +
+      ':host{all:initial;position:fixed!important;right:16px!important;bottom:16px!important;z-index:2147483000!important;font:14px/1.4 system-ui,sans-serif;color:#302237;user-select:text}' +
       '*{box-sizing:border-box}button,a{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #e9b44c;outline-offset:3px}' +
-      '#launch{display:flex;align-items:center;gap:9px;min-height:52px;padding:13px 18px;border:0;border-radius:28px;background:#086f62;color:white;box-shadow:0 4px 18px #0003;font-weight:600}' +
-      '#panel{position:absolute;bottom:66px;left:0;width:min(400px,calc(100vw - 32px));height:min(640px,calc(100dvh - 100px));height:min(640px,calc(100vh - 100px));background:white;border:1px solid #c8dbd5;border-radius:16px;box-shadow:0 8px 36px #0003;overflow:hidden;display:flex;flex-direction:column}' +
-      '#panel[hidden]{display:none}.bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#edf5f2;gap:12px;min-height:42px}' +
-      '.bar a{color:#086f62;font-size:12px;text-decoration:underline}.bar button{border:0;border-radius:8px;background:transparent;color:#163c38;font-size:24px;line-height:1;padding:2px 7px;min-width:32px;min-height:32px}' +
+      '#launch{display:flex;align-items:center;gap:9px;min-height:52px;padding:13px 18px;border:0;border-radius:28px;background:#681578;color:white;box-shadow:0 4px 18px #0003;font-weight:600}' +
+      '#panel{position:absolute;bottom:66px;right:0;width:min(400px,calc(100vw - 32px));height:min(560px,calc(100dvh - 100px));height:min(560px,calc(100vh - 100px));background:white;border:1px solid #d8c5df;border-radius:16px;box-shadow:0 8px 36px #0003;overflow:hidden;display:flex;flex-direction:column}' +
+      '#panel[hidden]{display:none}.bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f4edf7;gap:12px;min-height:42px}' +
+      '.bar a{color:#681578;font-size:12px;text-decoration:underline}.bar button{border:0;border-radius:8px;background:transparent;color:#302237;font-size:24px;line-height:1;padding:2px 7px;min-width:32px;min-height:32px}' +
       'iframe{display:block;flex:1;width:100%;min-height:0;border:0;background:white}' +
-      '@media(max-width:480px){:host{left:10px!important;bottom:12px!important}#panel{width:calc(100vw - 20px);bottom:64px;height:calc(100vh - 100px);height:calc(100dvh - 100px)}}' +
+      '@media(max-width:480px){:host{right:10px!important;bottom:12px!important}#panel{width:calc(100vw - 20px);bottom:64px;height:calc(100vh - 100px);height:calc(100dvh - 100px)}}' +
       '</style>' +
       '<section id="panel" role="region" aria-label="Asistente Provipets Market" hidden>' +
       '<div class="bar"><a id="external" target="_blank" rel="noopener noreferrer">Abrir en otra ventana</a><button id="close" type="button" aria-label="Cerrar chat">×</button></div>' +
       '</section>' +
-      '<button id="launch" type="button" aria-expanded="false" aria-controls="panel"><span aria-hidden="true">✉</span> Pregúntanos</button>';
+      '<button id="launch" type="button" aria-expanded="false" aria-controls="panel"><svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 11h10M7 15h6"/></svg> ¿Te ayudamos?</button>';
     var panel = root.getElementById('panel');
     var launch = root.getElementById('launch');
     var close = root.getElementById('close');
