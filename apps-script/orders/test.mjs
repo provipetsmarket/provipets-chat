@@ -54,7 +54,7 @@ test('attempt cap blocks workbook access; module sends neither email nor persona
  const h=harness();h.props.set('ORDER_DAY_V2','2026-10-25');h.props.set('ORDER_ATTEMPTS_V2','100');
  assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone).ok,false);assert.equal(h.reads(),0);
  assert.ok(!source.includes('MailApp'));assert.ok(!source.includes('UrlFetchApp'));
- assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-v2:"));
+ assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-v3:"));
 });
 test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is read-only',async()=>{
  const html=await readFile(new URL('Index.html',base),'utf8');
@@ -64,4 +64,13 @@ test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is re
  const manifest=JSON.parse(await readFile(new URL('appsscript.json',base),'utf8'));
  assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/drive.readonly'));
  assert.ok(!manifest.oauthScopes.some(s=>s.includes('send_mail')));
+});
+
+test('fast XLSX reader decodes rich text, inline cells and sparse rows without XML service',()=>{
+ const sheet='<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>PLATAFORMA</t></is></c><c r="B1" t="inlineStr"><is><t>ORDEN</t></is></c><c r="C1" t="inlineStr"><is><t>Nombre</t></is></c><c r="D1" t="inlineStr"><is><t>Guia</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>ADDI</t></is></c><c r="B2" t="inlineStr"><is><t>TEST-01</t></is></c><c r="C2" t="s"><v>0</v></c><c r="D2"><v>123456789</v></c><c r="E2"/></row><row r="1048576"><c r="A1048576"/></row></sheetData></worksheet>';
+ const xml={'xl/sharedStrings.xml':'<sst><si><r><t>Mar&#237;a </t></r><r><t>Prueba &amp; Otra</t></r><rPh><t>IGNORE</t></rPh></si></sst>','xl/worksheets/sheet1.xml':sheet};
+ const blobs=Object.entries(xml).map(([name,text])=>({getName:()=>name,getBytes:()=>new Uint8Array(Buffer.byteLength(text)),getDataAsString:()=>text}));
+ const cache=new Map(),file={getLastUpdated:()=>new Date('2026-10-25'),getSize:()=>1234,getMimeType:()=> 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',getBlob:()=>({setContentType:()=>({})})};let unzips=0;
+ const ctx=vm.createContext({PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'TEST'})},DriveApp:{getFileById:()=>file},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},Utilities:{unzip:()=>{unzips++;return blobs;}}});
+ vm.runInContext(source,ctx);const book=ctx.readOrderWorkbook_();assert.equal(book.rows.length,1);assert.equal(book.rows[0].name,'María Prueba & Otra');assert.equal(book.rows[0].guide,'123456789');ctx.readOrderWorkbook_();assert.equal(unzips,1);
 });

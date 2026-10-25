@@ -77,7 +77,7 @@ function readOrderWorkbook_() {
   if (file.getMimeType()!=='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') throw new Error('EXPECTED_XLSX');
   if (file.getSize()>10000000) throw new Error('FILE_TOO_LARGE');
   var cache=CacheService.getScriptCache();
-  var prefix='orders-v2:'+modified+':';
+  var prefix='orders-v3:'+modified+':';
   var meta=cache.get(prefix+'meta');
   if (meta) {
     meta=JSON.parse(meta);
@@ -89,40 +89,42 @@ function readOrderWorkbook_() {
   var blobs=Utilities.unzip(file.getBlob().setContentType('application/zip'));
   var entries={},total=0;
   blobs.forEach(function(b){var bytes=b.getBytes();total+=bytes.length;if(total>50000000)throw new Error('ARCHIVE_TOO_LARGE');entries[b.getName()]=b;});
-  function xml(path){if(!entries[path])throw new Error('INVALID_XLSX');return XmlService.parse(entries[path].getDataAsString()).getRootElement();}
-  var ns=XmlService.getNamespace(ORDER_NS_);
+  function xml(path){if(!entries[path])throw new Error('INVALID_XLSX');return entries[path].getDataAsString();}
   var strings=[];
-  if(entries['xl/sharedStrings.xml']) strings=xml('xl/sharedStrings.xml').getChildren('si',ns).map(function(si){return orderRichText_(si,ns);});
+  if(entries['xl/sharedStrings.xml']) {
+    var shared=xml('xl/sharedStrings.xml'),si,reSi=/<si\b[^>]*>([\s\S]*?)<\/si>/g;
+    while((si=reSi.exec(shared))!==null)strings.push(orderXmlText_(si[1]));
+  }
   var book={updated:new Date(modified).toISOString(),rows:[]};
   var names=Object.keys(entries).filter(function(n){return /^xl\/worksheets\/sheet\d+\.xml$/.test(n);});
   if(names.length>150)throw new Error('TOO_MANY_SHEETS');
   names.forEach(function(path){
-    var data=xml(path).getChild('sheetData',ns);if(!data)return;
-    var rows=data.getChildren('row',ns),headers=null;
-    rows.forEach(function(row,index){
+    var sheet=xml(path),row,reRow=/<row\b[^>]*>([\s\S]*?)<\/row>/g,headers=null,index=0;
+    while((row=reRow.exec(sheet))!==null){
       var values={};
-      row.getChildren('c',ns).forEach(function(cell){
-        var attr=cell.getAttribute('r');if(!attr)return;
-        var col=attr.getValue().replace(/[0-9]/g,'');
-        var type=cell.getAttribute('t'),v=cell.getChildText('v',ns),is=cell.getChild('is',ns);
-        values[col]=type && type.getValue()==='s' ? (strings[Number(v)] || '') : (is ? orderRichText_(is,ns) : (v || ''));
-      });
-      if(!headers && index<10){
+      var cell,reCell=/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+      while((cell=reCell.exec(row[1]))!==null){
+        var ref=/\br=["']([A-Z]+)\d+["']/.exec(cell[1]);if(!ref)continue;
+        var type=/\bt=["']([^"']+)["']/.exec(cell[1]),body=cell[2] || '',v=/<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body);
+        values[ref[1]]=type && type[1]==='s' ? (strings[Number(v ? v[1] : -1)] || '') : (type && type[1]==='inlineStr' ? orderXmlText_(body) : orderXmlDecode_(v ? v[1] : ''));
+      }
+      index++;
+      if(!headers && index<=10){
         var candidate={};Object.keys(values).forEach(function(c){candidate[orderHeader_(values[c])]=c;});
         if(candidate.PLATAFORMA && (candidate.ORDEN || candidate.PEDIDO || candidate['NUMERO DE PEDIDO'])) headers=candidate;
-        return;
+        continue;
       }
-      if(!headers)return;
+      if(!headers)break;
       function get(keys,max){for(var k=0;k<keys.length;k++){if(headers[keys[k]])return String(values[headers[keys[k]]] || '').trim().slice(0,max || 500);}return '';}
       var platform=orderPlatform_(get(['PLATAFORMA'],50));
       var number=orderNumber_(get(['ORDEN','PEDIDO','NUMERO DE PEDIDO'],100));
-      if(!platform || !number)return;
+      if(!platform || !number)continue;
       book.rows.push({platform:platform,number:number,email:get(['EMAIL','E-MAIL','CORREO','CORREO ELECTRONICO'],254).toLowerCase(),
         name:get(['NOMBRE','NOMBRE COMPLETO','CLIENTE'],180),phone:get(['TELEFONO','CELULAR','MOVIL'],40),document:get(['DOCUMENTO','CEDULA','IDENTIFICACION'],40),
         product:get(['PRODUCTO','NOMBRE PRODUCTO']),quantity:get(['UNDS','UNIDADES','CANTIDAD'],30),
         guide:get(['GUIA','NUMERO DE GUIA','NRO GUIA'],150),carrier:get(['TRANSPORTADORA','TRANSPORTADOR'],80)});
       if(book.rows.length>20000)throw new Error('TOO_MANY_ORDERS');
-    });
+    }
   });
   if(!book.rows.length || file.getLastUpdated().getTime()!==modified)throw new Error('WORKBOOK_CHANGED');
   // Cache chunks below Google's per-key 100 KB limit, including UTF-8 characters.
@@ -130,8 +132,16 @@ function readOrderWorkbook_() {
   if(count<=100){for(var c=0;c<count;c++)cache.put(prefix+c,serialized.slice(c*20000,(c+1)*20000),300);cache.put(prefix+'meta',JSON.stringify({count:count}),300);}
   return book;
 }
-function orderRichText_(node,ns) {
-  var text=node.getChildText('t',ns) || '';
-  node.getChildren('r',ns).forEach(function(r){text+=r.getChildText('t',ns) || '';});
+function orderXmlText_(xml) {
+  // Only cell text; phonetic annotations must not alter customer names.
+  xml=xml.replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g,'');
+  var text='',m,re=/<t\b[^>]*>([\s\S]*?)<\/t>/g;
+  while((m=re.exec(xml))!==null)text+=orderXmlDecode_(m[1]);
   return text;
+}
+function orderXmlDecode_(s) {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,function(all,e){
+    if(e[0]==='#'){var n=e[1].toLowerCase()==='x' ? parseInt(e.slice(2),16) : Number(e.slice(1));return n>0 && n<=0x10ffff ? String.fromCodePoint(n) : '';}
+    return {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"}[e.toLowerCase()];
+  });
 }

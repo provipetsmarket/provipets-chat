@@ -247,7 +247,7 @@ function readOrderWorkbook_() {
   if (file.getMimeType()!=='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') throw new Error('EXPECTED_XLSX');
   if (file.getSize()>10000000) throw new Error('FILE_TOO_LARGE');
   var cache=CacheService.getScriptCache();
-  var prefix='orders-v2:'+modified+':';
+  var prefix='orders-v3:'+modified+':';
   var meta=cache.get(prefix+'meta');
   if (meta) {
     meta=JSON.parse(meta);
@@ -259,40 +259,42 @@ function readOrderWorkbook_() {
   var blobs=Utilities.unzip(file.getBlob().setContentType('application/zip'));
   var entries={},total=0;
   blobs.forEach(function(b){var bytes=b.getBytes();total+=bytes.length;if(total>50000000)throw new Error('ARCHIVE_TOO_LARGE');entries[b.getName()]=b;});
-  function xml(path){if(!entries[path])throw new Error('INVALID_XLSX');return XmlService.parse(entries[path].getDataAsString()).getRootElement();}
-  var ns=XmlService.getNamespace(ORDER_NS_);
+  function xml(path){if(!entries[path])throw new Error('INVALID_XLSX');return entries[path].getDataAsString();}
   var strings=[];
-  if(entries['xl/sharedStrings.xml']) strings=xml('xl/sharedStrings.xml').getChildren('si',ns).map(function(si){return orderRichText_(si,ns);});
+  if(entries['xl/sharedStrings.xml']) {
+    var shared=xml('xl/sharedStrings.xml'),si,reSi=/<si\b[^>]*>([\s\S]*?)<\/si>/g;
+    while((si=reSi.exec(shared))!==null)strings.push(orderXmlText_(si[1]));
+  }
   var book={updated:new Date(modified).toISOString(),rows:[]};
   var names=Object.keys(entries).filter(function(n){return /^xl\/worksheets\/sheet\d+\.xml$/.test(n);});
   if(names.length>150)throw new Error('TOO_MANY_SHEETS');
   names.forEach(function(path){
-    var data=xml(path).getChild('sheetData',ns);if(!data)return;
-    var rows=data.getChildren('row',ns),headers=null;
-    rows.forEach(function(row,index){
+    var sheet=xml(path),row,reRow=/<row\b[^>]*>([\s\S]*?)<\/row>/g,headers=null,index=0;
+    while((row=reRow.exec(sheet))!==null){
       var values={};
-      row.getChildren('c',ns).forEach(function(cell){
-        var attr=cell.getAttribute('r');if(!attr)return;
-        var col=attr.getValue().replace(/[0-9]/g,'');
-        var type=cell.getAttribute('t'),v=cell.getChildText('v',ns),is=cell.getChild('is',ns);
-        values[col]=type && type.getValue()==='s' ? (strings[Number(v)] || '') : (is ? orderRichText_(is,ns) : (v || ''));
-      });
-      if(!headers && index<10){
+      var cell,reCell=/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+      while((cell=reCell.exec(row[1]))!==null){
+        var ref=/\br=["']([A-Z]+)\d+["']/.exec(cell[1]);if(!ref)continue;
+        var type=/\bt=["']([^"']+)["']/.exec(cell[1]),body=cell[2] || '',v=/<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body);
+        values[ref[1]]=type && type[1]==='s' ? (strings[Number(v ? v[1] : -1)] || '') : (type && type[1]==='inlineStr' ? orderXmlText_(body) : orderXmlDecode_(v ? v[1] : ''));
+      }
+      index++;
+      if(!headers && index<=10){
         var candidate={};Object.keys(values).forEach(function(c){candidate[orderHeader_(values[c])]=c;});
         if(candidate.PLATAFORMA && (candidate.ORDEN || candidate.PEDIDO || candidate['NUMERO DE PEDIDO'])) headers=candidate;
-        return;
+        continue;
       }
-      if(!headers)return;
+      if(!headers)break;
       function get(keys,max){for(var k=0;k<keys.length;k++){if(headers[keys[k]])return String(values[headers[keys[k]]] || '').trim().slice(0,max || 500);}return '';}
       var platform=orderPlatform_(get(['PLATAFORMA'],50));
       var number=orderNumber_(get(['ORDEN','PEDIDO','NUMERO DE PEDIDO'],100));
-      if(!platform || !number)return;
+      if(!platform || !number)continue;
       book.rows.push({platform:platform,number:number,email:get(['EMAIL','E-MAIL','CORREO','CORREO ELECTRONICO'],254).toLowerCase(),
         name:get(['NOMBRE','NOMBRE COMPLETO','CLIENTE'],180),phone:get(['TELEFONO','CELULAR','MOVIL'],40),document:get(['DOCUMENTO','CEDULA','IDENTIFICACION'],40),
         product:get(['PRODUCTO','NOMBRE PRODUCTO']),quantity:get(['UNDS','UNIDADES','CANTIDAD'],30),
         guide:get(['GUIA','NUMERO DE GUIA','NRO GUIA'],150),carrier:get(['TRANSPORTADORA','TRANSPORTADOR'],80)});
       if(book.rows.length>20000)throw new Error('TOO_MANY_ORDERS');
-    });
+    }
   });
   if(!book.rows.length || file.getLastUpdated().getTime()!==modified)throw new Error('WORKBOOK_CHANGED');
   // Cache chunks below Google's per-key 100 KB limit, including UTF-8 characters.
@@ -300,10 +302,18 @@ function readOrderWorkbook_() {
   if(count<=100){for(var c=0;c<count;c++)cache.put(prefix+c,serialized.slice(c*20000,(c+1)*20000),300);cache.put(prefix+'meta',JSON.stringify({count:count}),300);}
   return book;
 }
-function orderRichText_(node,ns) {
-  var text=node.getChildText('t',ns) || '';
-  node.getChildren('r',ns).forEach(function(r){text+=r.getChildText('t',ns) || '';});
+function orderXmlText_(xml) {
+  // Only cell text; phonetic annotations must not alter customer names.
+  xml=xml.replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g,'');
+  var text='',m,re=/<t\b[^>]*>([\s\S]*?)<\/t>/g;
+  while((m=re.exec(xml))!==null)text+=orderXmlDecode_(m[1]);
   return text;
+}
+function orderXmlDecode_(s) {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,function(all,e){
+    if(e[0]==='#'){var n=e[1].toLowerCase()==='x' ? parseInt(e.slice(2),16) : Number(e.slice(1));return n>0 && n<=0x10ffff ? String.fromCodePoint(n) : '';}
+    return {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"}[e.toLowerCase()];
+  });
 }
 
 var AGENT_CONFIG_ = {"agent_id":"agent_7cb5416e83484453b3b90134710c6008c1ee5475c9ce418389","agent":{"model":"gpt-6-luna","instructions":"Eres el Asistente de Ventas de Provipets Market, una tienda online de Colombia.\n\nTu función principal es ayudar a los clientes a encontrar y comprar productos disponibles en Provipets Market.\n\nCATÁLOGO Y PRODUCTOS\n\nTienes acceso al catálogo oficial de Provipets Market mediante las herramientas de Jumpseller.\n\nCuando un cliente pregunte por un producto, marca, categoría, precio, disponibilidad, presentación, tamaño, referencia o solicite una recomendación de compra:\n\n1. Consulta primero el catálogo de Provipets Market.\n2. Utiliza search_products para buscar productos relacionados.\n3. Utiliza get_product cuando necesites verificar información específica de un producto.\n4. Nunca inventes productos, precios, disponibilidad, características, promociones ni enlaces.\n5. Si el producto no aparece en el catálogo, informa al cliente que no encontraste una opción disponible en este momento.\n6. No afirmes que un producto está disponible sin comprobarlo en el catálogo.\n7. Cuando recomiendes productos, prioriza productos que realmente estén disponibles.\n\nRECOMENDACIONES\n\nAyuda al cliente a encontrar productos aunque no conozca el nombre exacto.\n\nPor ejemplo:\n\n\"Busco alimento para un gato esterilizado\"\n\"Necesito un televisor de 55 pulgadas\"\n\"Quiero un recipiente de aproximadamente 1 litro\"\n\"Busco comida para perro por menos de $200.000\"\n\nHaz preguntas adicionales solamente cuando sean necesarias para encontrar una buena opción.\n\nCuando existan varias opciones adecuadas, presenta preferiblemente entre 2 y 4 alternativas.\n\nPara cada producto recomendado muestra, cuando la información esté disponible:\n\nNombre\nPrecio\nPresentación o característica principal relevante\nEnlace al producto\n\nNo satures al cliente con demasiados productos.\n\nATENCIÓN COMERCIAL\n\nResponde en español por defecto.\n\nUtiliza un tono cordial, profesional, comercial y natural.\n\nLas respuestas deben ser breves y fáciles de leer.\n\nTu objetivo es ayudar al cliente a tomar una decisión de compra, no darle explicaciones innecesariamente largas.\n\nCuando sea apropiado, termina con una pregunta sencilla que permita continuar la venta.\n\nPor ejemplo:\n\n\"¿Quieres que te muestre opciones más económicas?\"\n\n\"¿Qué tamaño necesitas?\"\n\n\"¿Quieres que compare estas dos opciones?\"\n\nMASCOTAS\n\nCuando recomiendes alimentos, medicamentos, suplementos u otros productos para mascotas, utiliza únicamente la información disponible en el catálogo.\n\nNo realices diagnósticos veterinarios ni sustituyas la recomendación de un veterinario.\n\nSi la pregunta implica una condición médica o tratamiento, recomienda consultar a un médico veterinario.\n\nINFORMACIÓN DE LA TIENDA\n\nCuando el cliente pregunte por políticas, condiciones comerciales u otra información de Provipets Market, utiliza las herramientas disponibles de la tienda cuando corresponda.\n\nFUERA DE ALCANCE\n\nNo respondas preguntas generales que no tengan relación razonable con Provipets Market, sus productos, compras o servicio al cliente.\n\nIndica brevemente que eres el asistente de Provipets Market y ofrece ayudar con productos o compras.\n\nREGLA FUNDAMENTAL\n\nNunca inventes información sobre el catálogo.\n\nSi una respuesta depende de información actual de un producto, consulta Jumpseller antes de responder.\n\nCONSULTA DE PEDIDOS: Para compras de cualquier plataforma, indica que debe pulsar «Consultar mi pedido» e ingresar allí dos datos distintos de su compra: nombre completo, teléfono, correo o cédula. No es obligatorio conocer el número de orden ni se envían códigos. Solo se muestra la guía si ambos datos coinciden en la misma compra. No solicites datos personales en la conversación. La verificación y búsqueda ocurren en ese formulario separado; no tienes acceso a los resultados.","reasoning":{"effort":"low","summary":"auto"},"text":{"format":{"type":"text"},"verbosity":"low"}}};
