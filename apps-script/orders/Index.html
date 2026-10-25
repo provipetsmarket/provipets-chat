@@ -149,7 +149,7 @@
       if(result.needsProduct){byId('product-clue').hidden=false;byId('order-product').focus();}
       if(result.ok){
         byId('order-value-1').value='';byId('order-value-2').value='';
-        const lines=(result.guides || []).map(g=>'Guía: '+g);
+        const lines=(result.shipments || (result.guides || []).map(g=>({guide:g,carrier:''}))).map(s=>'Guía: '+s.guide+'\nTransportadora: '+(s.carrier || 'No confirmada en la plantilla'));
         if(result.guides && result.guides.length)lines.push('Una guía registrada no confirma que el envío haya sido entregado.');
         lines.push('Información del archivo guardado en Drive: '+new Date(result.updated).toLocaleString('es-CO',{timeZone:'America/Bogota'}));
         byId('order-result').textContent=lines.join('\n\n');byId('order-result').focus();

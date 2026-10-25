@@ -53,8 +53,17 @@ function matchingOrder_(book,type1,a,type2,b,product) {
   if(Object.keys(groups).length!==1)return {ok:false,needsProduct:true,text:'Esos datos coinciden con varias compras. Escribe el producto que estás esperando para identificar cuál buscas. Si sigue habiendo varias, solicita atención en el canal de compra.'};
   var seen={},guides=[];
   rows.forEach(function(r){if(r.guide && !seen[r.guide]){seen[r.guide]=true;guides.push(r.guide);}});
-  // Guide only: never return contact info, name, document, address, products or other order IDs.
-  return {ok:true,guides:guides,updated:book.updated,text:guides.length ? 'Guía registrada en la plantilla.' : 'Todavía no aparece una guía registrada para esta compra en la plantilla. Esto no confirma el estado del despacho.'};
+  var shipments=guides.map(function(guide){
+    var carriers={};rows.forEach(function(r){if(r.guide===guide){var carrier=orderCarrier_(r.carrier);if(carrier)carriers[carrier]=true;}});
+    var names=Object.keys(carriers);
+    return {guide:guide,carrier:names.length===1 ? names[0] : ''};
+  });
+  // Only shipment details: never return contact info, names, addresses or order IDs.
+  return {ok:true,guides:guides,shipments:shipments,updated:book.updated,text:guides.length ? 'Guía registrada en la plantilla.' : 'Todavía no aparece una guía registrada para esta compra en la plantilla. Esto no confirma el estado del despacho.'};
+}
+function orderCarrier_(value) {
+  var key=orderHeader_(value).replace(/[^A-Z]/g,'');
+  return {SERVIENTREGA:'Servientrega',ENVIA:'Envía',INTERRAPIDISIMO:'Inter Rapidísimo'}[key] || '';
 }
 function orderHeader_(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');

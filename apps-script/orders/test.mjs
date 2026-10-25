@@ -19,7 +19,7 @@ test('all six combinations work without order number; result contains only guide
  for(let i=0;i<fields.length;i++)for(let j=i+1;j<fields.length;j++){
   const h=harness(),a=fields[i],b=fields[j],r=h.lookup(a,h.row[a],b,h.row[b],'');
   assert.equal(r.ok,true,a+'+'+b);assert.deepEqual([...r.guides],['GUIA-FICTICIA']);
-  assert.deepEqual(Object.keys(r).sort(),['guides','ok','text','updated']);
+  assert.deepEqual(Object.keys(r).sort(),['guides','ok','shipments','text','updated']);
   assert.ok(!JSON.stringify(r).includes('cliente@example.com'));assert.ok(!JSON.stringify(r).includes('MKT-TEST-01'));
  }
 });
@@ -73,4 +73,14 @@ test('fast XLSX reader decodes rich text, inline cells and sparse rows without X
  const cache=new Map(),file={getLastUpdated:()=>new Date('2026-10-25'),getSize:()=>1234,getMimeType:()=> 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',getBlob:()=>({setContentType:()=>({})})};let unzips=0;
  const ctx=vm.createContext({PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'TEST'})},DriveApp:{getFileById:()=>file},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},Utilities:{unzip:()=>{unzips++;return blobs;}}});
  vm.runInContext(source,ctx);const book=ctx.readOrderWorkbook_();assert.equal(book.rows.length,1);assert.equal(book.rows[0].name,'María Prueba & Otra');assert.equal(book.rows[0].guide,'123456789');ctx.readOrderWorkbook_();assert.equal(unzips,1);
+});
+
+test('carrier stays paired with verified guide; missing or conflicting values are never guessed',()=>{
+ for(const [raw,label] of [['SERVIENTREGA','Servientrega'],['Envia','Envía'],['Interrapidísimo','Inter Rapidísimo'],['',''],['Otro dato','']]){
+  const h=harness();h.row.carrier=raw;const r=h.lookup('email',h.row.email,'phone',h.row.phone);assert.equal(r.shipments[0].guide,h.row.guide);assert.equal(r.shipments[0].carrier,label);
+ }
+ const h=harness();h.row.carrier='Servientrega';h.book.rows.push({...h.row,guide:'SECOND',carrier:'Envia'});
+ let r=h.lookup('email',h.row.email,'phone',h.row.phone);assert.equal(r.shipments[0].carrier,'Servientrega');assert.equal(r.shipments[1].carrier,'Envía');
+ h.book.rows.push({...h.row,carrier:'Inter Rapidisimo'});r=h.lookup('email',h.row.email,'phone',h.row.phone);assert.equal(r.shipments[0].carrier,'');
+ assert.equal(h.lookup('email',h.row.email,'phone','3000000000').shipments,undefined);
 });
