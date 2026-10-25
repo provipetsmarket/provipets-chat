@@ -26,18 +26,19 @@
 <main class="app">
   <header><div><h1>Provipets Market</h1><p>Tu asistente de compras</p></div><button type="button" id="reset">Nuevo chat</button></header>
   <nav class="tabs" aria-label="Tipo de consulta"><button id="catalog-tab" type="button" aria-pressed="true">Productos</button><button id="orders-tab" type="button" aria-pressed="false">Consultar mi pedido</button></nav>
-  <section id="orders" aria-label="Consulta privada de pedidos" hidden>
-    <h2>Consulta tu pedido</h2>
-    <p>Compras en Provipets y marketplaces. Consulta los productos y números de guía registrados en nuestra plantilla.</p>
-    <p class="note">Para proteger tu información, enviaremos un código al correo registrado en la compra. Si no tienes acceso a ese correo o no está registrado, solicita atención en el canal donde compraste.</p>
+  <section id="orders" aria-label="Consulta de guías" hidden>
+    <h2>Consulta la guía de tu compra</h2>
+    <p>Ingresa dos datos distintos que registraste al comprar. No necesitas el número de orden. Aplica para Provipets y marketplaces.</p>
     <form id="order-request">
-      <label>¿Dónde compraste?<select id="order-platform" required><option value="">Selecciona</option><option value="WEB">Web Provipets</option><option value="ADDI">Addi</option><option value="PCO">Puntos Colombia</option><option value="FALABELLA">Falabella</option><option value="ML">Mercado Libre</option><option value="DIRECTO">Compra directa / otro canal directo</option></select></label>
-      <label>Número de pedido<input id="order-number" required maxlength="100" autocomplete="off" placeholder="El número que aparece en tu compra"></label>
-      <label>Correo de la compra<input id="order-email" type="email" required maxlength="254" autocomplete="email"></label>
-      <button id="order-send" type="submit">Enviar código de verificación</button>
+      <label>Primer dato<select id="order-type-1"><option value="name">Nombre completo</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
+      <label><span id="order-label-1">Nombre completo</span><input id="order-value-1" required maxlength="254" autocomplete="off"></label>
+      <label>Segundo dato<select id="order-type-2"><option value="name">Nombre completo</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
+      <label><span id="order-label-2">Teléfono</span><input id="order-value-2" required maxlength="254" autocomplete="off"></label>
+      <label id="product-clue" hidden>Producto comprado<input id="order-product" maxlength="200" placeholder="Escribe el nombre del producto que esperas" autocomplete="off"></label>
+      <button id="order-send" type="submit">Consultar guía</button>
     </form>
-    <form id="order-verify" hidden><label>Código recibido por correo<input id="order-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button id="order-check" type="submit">Ver mi pedido</button><button id="order-restart" type="button">Volver a ingresar datos</button></form>
-    <p id="order-status" role="status" aria-live="polite"></p><div id="order-result" role="region" aria-label="Resultado de tu pedido" tabindex="-1"></div>
+    <p class="note">Solo mostramos la guía registrada si los dos datos coinciden en la misma compra. No publicamos tus otros datos personales. La plantilla no es seguimiento en tiempo real de la transportadora.</p>
+    <p id="order-status" role="status" aria-live="polite"></p><div id="order-result" role="region" aria-label="Guía de tu compra" tabindex="-1"></div>
   </section>
   <div id="messages" role="log" aria-label="Conversación" aria-live="polite"></div>
   <div id="status" role="status"></div>
@@ -101,50 +102,61 @@
 
 <script>
 (() => {
-  const byId = id => document.getElementById(id);
-  let challenge=null, working=false;
+  const byId=id=>document.getElementById(id);
+  const labels={name:'Nombre completo',phone:'Teléfono',email:'Correo',document:'Cédula'};
   const status=byId('order-status');
+  let working=false;
+  byId('order-type-2').value='phone';
+  function fields(){
+    for(const i of [1,2]){
+      const kind=byId('order-type-'+i).value;
+      byId('order-label-'+i).textContent=labels[kind];
+      const input=byId('order-value-'+i);
+      input.type=kind==='email'?'email':'text';
+      input.inputMode=(kind==='phone'||kind==='document')?'numeric':'text';
+      input.placeholder=kind==='name'?'Nombre completo usado al comprar':labels[kind]+' de la compra';
+    }
+  }
   function switchTab(orders){
     byId('orders').hidden=!orders;
     ['messages','status','form'].forEach(id=>byId(id).hidden=orders);
     byId('catalog-tab').setAttribute('aria-pressed',String(!orders));
     byId('orders-tab').setAttribute('aria-pressed',String(orders));
   }
-  byId('reset').addEventListener('click',()=>{if(working)return;challenge=null;byId('order-result').textContent='';byId('order-request').reset();byId('order-verify').reset();byId('order-request').hidden=false;byId('order-verify').hidden=true;status.textContent='';switchTab(false);});
   byId('catalog-tab').addEventListener('click',()=>switchTab(false));
   byId('orders-tab').addEventListener('click',()=>switchTab(true));
-  function busy(value){working=value;byId('reset').disabled=value;['order-send','order-check','order-restart'].forEach(id=>byId(id).disabled=value);}
-  function failure(){busy(false);status.textContent='No pude completar la verificación. Inténtalo más tarde o solicita atención en el canal de compra.';}
+  byId('reset').addEventListener('click',()=>{
+    if(working)return;
+    byId('order-request').reset();byId('order-type-2').value='phone';
+    byId('order-result').textContent='';status.textContent='';byId('product-clue').hidden=true;fields();switchTab(false);
+  });
+  for(const i of [1,2])byId('order-type-'+i).addEventListener('change',()=>{
+    byId('order-value-'+i).value='';byId('order-result').textContent='';
+    byId('product-clue').hidden=true;byId('order-product').value='';fields();
+  });
+  function busy(value){
+    working=value;byId('order-send').disabled=value;byId('reset').disabled=value;
+    for(const id of ['order-type-1','order-type-2','order-value-1','order-value-2','order-product'])byId(id).disabled=value;
+  }
   byId('order-request').addEventListener('submit',event=>{
     event.preventDefault();if(working)return;
-    busy(true);byId('order-result').textContent='';status.textContent='Verificando los datos y preparando el código…';
+    const t1=byId('order-type-1').value,t2=byId('order-type-2').value;
+    if(t1===t2){status.textContent='Elige dos datos distintos, por ejemplo nombre y teléfono.';return;}
+    const v1=byId('order-value-1').value,v2=byId('order-value-2').value,product=byId('order-product').value;
+    busy(true);byId('order-result').textContent='';status.textContent='Consultando tu compra en la plantilla…';
     google.script.run.withSuccessHandler(result=>{
       busy(false);status.textContent=result.text || 'No pude completar la consulta.';
-      if(result.ok && result.challenge){challenge=result.challenge;byId('order-request').hidden=true;byId('order-verify').hidden=false;byId('order-code').value='';byId('order-code').focus();}
-    }).withFailureHandler(failure).requestOrderCode(byId('order-platform').value,byId('order-number').value,byId('order-email').value);
+      if(result.needsProduct){byId('product-clue').hidden=false;byId('order-product').focus();}
+      if(result.ok){
+        byId('order-value-1').value='';byId('order-value-2').value='';
+        const lines=(result.guides || []).map(g=>'Guía: '+g);
+        if(result.guides && result.guides.length)lines.push('Una guía registrada no confirma que el envío haya sido entregado.');
+        lines.push('Información del archivo guardado en Drive: '+new Date(result.updated).toLocaleString('es-CO',{timeZone:'America/Bogota'}));
+        byId('order-result').textContent=lines.join('\n\n');byId('order-result').focus();
+      }
+    }).withFailureHandler(()=>{busy(false);status.textContent='No pude consultar la plantilla. Inténtalo más tarde o solicita atención en el canal donde compraste.';}).lookupOrder(t1,v1,t2,v2,product);
   });
-  byId('order-verify').addEventListener('submit',event=>{
-    event.preventDefault();if(working)return;busy(true);status.textContent='Verificando el código…';
-    google.script.run.withSuccessHandler(result=>{
-      busy(false);
-      if(!result.ok || !result.order){status.textContent=result.text || 'No pude verificar el código.';return;}
-      challenge=null;byId('order-verify').hidden=true;byId('order-request').hidden=false;
-      byId('order-email').value='';byId('order-code').value='';status.textContent='Pedido verificado.';
-      const order=result.order;
-      const lines=['Pedido: '+order.number,''];
-      order.items.forEach((item,i)=>{
-        lines.push((i+1)+'. '+(item.product || 'Producto sin descripción registrada'));
-        if(item.quantity)lines.push('Cantidad: '+item.quantity);
-        lines.push(item.guide ? 'Guía registrada: '+item.guide : 'Sin número de guía registrado en la plantilla.');
-        if(item.carrier)lines.push('Transportadora: '+item.carrier);
-        lines.push('');
-      });
-      lines.push('Información del archivo guardado en Drive: '+new Date(order.updated).toLocaleString('es-CO',{timeZone:'America/Bogota'}));
-      lines.push('Una guía registrada no confirma por sí sola la entrega. No disponemos aquí de seguimiento en tiempo real de la transportadora.');
-      byId('order-result').textContent=lines.join('\n');byId('order-result').focus();
-    }).withFailureHandler(failure).verifyOrderCode(challenge,byId('order-code').value.trim());
-  });
-  byId('order-restart').addEventListener('click',()=>{challenge=null;byId('order-verify').hidden=true;byId('order-request').hidden=false;byId('order-code').value='';status.textContent='';});
+  fields();
 })();
 </script>
 </body>

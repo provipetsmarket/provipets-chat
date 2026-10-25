@@ -1,73 +1,67 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 const base=new URL('./',import.meta.url);
 const source=await readFile(new URL('Orders.gs',base),'utf8');
 function harness(){
-  const props=new Map(),cache=new Map(),sent=[];let held=false;
-  const ctx=vm.createContext({console:{error:()=>{}},
-    PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,v),setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v))})},
-    CacheService:{getScriptCache:()=>({get:k=>cache.get(k)??null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},
-    LockService:{getScriptLock:()=>({tryLock:()=>held?false:(held=true),releaseLock:()=>held=false})},
-    Utilities:{getUuid:()=>crypto.randomUUID(),formatDate:()=> '2026-10-25',computeHmacSha256Signature:(v,s)=>[...crypto.createHmac('sha256',s).update(v).digest()]},
-    MailApp:{getRemainingDailyQuota:()=>100,sendEmail:m=>sent.push(m)}
-  });
-  vm.runInContext(source,ctx);
-  const book={updated:'2026-10-23T12:44:23.710Z',rows:[{platform:'ADDI',number:'MKT-123-01',email:'cliente@example.com',product:'Producto ficticio',quantity:'1',guide:'GUIA-FICTICIA',carrier:''}]};
-  ctx.readOrderWorkbook_=()=>book;
-  return {ctx,props,cache,sent,book,request:ctx.requestOrderCode,verify:ctx.verifyOrderCode,code:()=>sent.at(-1).body.match(/\b\d{6}\b/)[0]};
+ const props=new Map();let reads=0,held=false;
+ const row={platform:'ADDI',number:'MKT-TEST-01',name:'María Prueba',phone:'3001234567',email:'cliente@example.com',document:'12345678',product:'Alimento ficticio 4 kg',guide:'GUIA-FICTICIA'};
+ const book={updated:'2026-10-25T13:00:00.000Z',rows:[row]};
+ const ctx=vm.createContext({console:{error:()=>{}},Utilities:{formatDate:()=> '2026-10-25'},
+ PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null,setProperties:o=>Object.entries(o).forEach(([k,v])=>props.set(k,v))})},
+ LockService:{getScriptLock:()=>({tryLock:()=>held?false:(held=true),releaseLock:()=>held=false})}});
+ vm.runInContext(source,ctx);ctx.readOrderWorkbook_=()=>{reads++;return book;};
+ return {ctx,props,book,row,lookup:ctx.lookupOrder,reads:()=>reads};
 }
-test('registered email OTP gates minimal marketplace result; code is single-use',()=>{
- const h=harness();const requested=h.request('ADDI','MKT-123-01','cliente@example.com');
- assert.equal(requested.ok,true);assert.equal(h.sent.length,1);
- assert.ok(!JSON.stringify(requested).includes('GUIA-FICTICIA'));
- const result=h.verify(requested.challenge,h.code());assert.equal(result.ok,true);
- assert.equal(result.order.items[0].guide,'GUIA-FICTICIA');
- assert.ok(!JSON.stringify(result).includes('cliente@example.com'));
- assert.equal(h.verify(requested.challenge,h.code()).ok,false);
-});
-test('wrong email, channel, or missing order neither emails nor reveals existence',()=>{
- const good=harness().request('ADDI','MKT-123-01','cliente@example.com');
- for(const args of [['ADDI','MKT-123-01','other@example.com'],['ML','MKT-123-01','cliente@example.com'],['ADDI','MKT-999','cliente@example.com']]){
-  const h=harness(),result=h.request(...args);assert.equal(result.ok,true);assert.equal(result.text,good.text);assert.equal(h.sent.length,0);
-  assert.equal(h.verify(result.challenge,'000000').ok,false);
+test('all six combinations work without order number; result contains only guide and source time',()=>{
+ const fields=['name','phone','email','document'];
+ for(let i=0;i<fields.length;i++)for(let j=i+1;j<fields.length;j++){
+  const h=harness(),a=fields[i],b=fields[j],r=h.lookup(a,h.row[a],b,h.row[b],'');
+  assert.equal(r.ok,true,a+'+'+b);assert.deepEqual([...r.guides],['GUIA-FICTICIA']);
+  assert.deepEqual(Object.keys(r).sort(),['guides','ok','text','updated']);
+  assert.ok(!JSON.stringify(r).includes('cliente@example.com'));assert.ok(!JSON.stringify(r).includes('MKT-TEST-01'));
  }
 });
-test('mixed ownership and absent email fail closed, including another row in same order',()=>{
- const h=harness();h.book.rows.push({...h.book.rows[0],email:'otro@example.com'});
- assert.equal(h.request('ADDI','MKT-123-01','cliente@example.com').ok,true);assert.equal(h.sent.length,0);
- const g=harness();g.book.rows[0].email='';g.request('ADDI','MKT-123-01','cliente@example.com');assert.equal(g.sent.length,0);
+test('full name accents/case and Colombian phone formatting normalize consistently',()=>{
+ const h=harness();assert.equal(h.lookup('name','  MARIA  PRUEBA ','phone','+57 (300) 123-4567').ok,true);
+ assert.equal(h.lookup('name','Maria','phone','3001234567').ok,false);
+ assert.equal(h.lookup('name','Maria Otra','phone','3001234567').ok,false);
+ assert.equal(h.lookup('email','CLIENTE@EXAMPLE.COM','document','12.345.678').ok,true);
 });
-test('five wrong codes invalidate correct code; expiry and cache eviction do too',()=>{
- const h=harness(),r=h.request('ADDI','MKT-123-01','cliente@example.com');
- const wrong=h.code()==='000000'?'111111':'000000';
- for(let i=0;i<5;i++)assert.equal(h.verify(r.challenge,wrong).ok,false);
- assert.equal(h.verify(r.challenge,h.code()).ok,false);
- const g=harness(),s=g.request('ADDI','MKT-123-01','cliente@example.com');
- const entry=JSON.parse(g.cache.get('order-otp:'+s.challenge));entry.expires=Date.now()-1;g.cache.set('order-otp:'+s.challenge,JSON.stringify(entry));
- assert.equal(g.verify(s.challenge,g.code()).ok,false);
- assert.equal(g.verify('a'.repeat(32),'123456').ok,false);
+test('types must differ and both nonempty fields must match the same sale row',()=>{
+ const h=harness();assert.equal(h.lookup('phone','3001234567','phone','3001234567').ok,false);assert.equal(h.reads(),0);
+ h.book.rows.push({...h.row,number:'OTHER',name:'Otra Persona',phone:'3009999999',email:'otro@example.com'});
+ assert.equal(h.lookup('name','María Prueba','phone','3009999999').ok,false);
+ assert.equal(h.lookup('email','otro@example.com','document','99999999').ok,false);
+ assert.equal(h.lookup('document','','name','María Prueba').ok,false);
 });
-test('daily ceiling and cooldown block repeated mail; no model call exists',()=>{
- const h=harness();h.request('ADDI','MKT-123-01','cliente@example.com');
- assert.equal(h.request('ADDI','MKT-123-01','cliente@example.com').ok,false);assert.equal(h.sent.length,1);
- h.props.set('ORDER_ATTEMPTS','50');
- assert.equal(h.request('ADDI','OTHER','cliente@example.com').ok,false);assert.equal(h.sent.length,1);
- assert.ok(!source.includes('UrlFetchApp'));assert.ok(!source.includes('api.openai.com'));
+test('multiple matching purchases reveal no guides; customer product clue disambiguates',()=>{
+ const h=harness();h.book.rows.push({...h.row,number:'SECOND',guide:'OTRA-GUIA',product:'Juguete ficticio'});
+ const ambiguous=h.lookup('email',h.row.email,'phone',h.row.phone);
+ assert.equal(ambiguous.ok,false);assert.equal(ambiguous.needsProduct,true);assert.ok(!JSON.stringify(ambiguous).includes('GUIA'));
+ const selected=h.lookup('email',h.row.email,'phone',h.row.phone,'juguete');
+ assert.equal(selected.ok,true);assert.deepEqual([...selected.guides],['OTRA-GUIA']);
+ assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone,'inexistente').ok,false);
 });
-test('malformed input never accesses workbook; platform aliases and strict order matching',()=>{
- const h=harness();let reads=0;h.ctx.readOrderWorkbook_=()=>{reads++;return h.book;};
- for(const args of [['ANY','MKT-123','a@example.com'],['ADDI','123','x@example.com,attacker@example.com'],['ADDI','<script>','a@example.com']])assert.equal(h.request(...args).ok,false);
- assert.equal(reads,0);assert.equal(h.ctx.orderPlatform_('Mercado Libre'),'ML');assert.equal(h.ctx.orderPlatform_('Puntos Colombia'),'PCO');
- assert.equal(h.ctx.orderHeader_('  Número de Guía '),'NUMERO DE GUIA');
+test('empty guides and duplicate line items never create invented delivery status',()=>{
+ const h=harness();h.row.guide='';const empty=h.lookup('email',h.row.email,'phone',h.row.phone);
+ assert.equal(empty.ok,true);assert.equal(empty.guides.length,0);assert.match(empty.text,/no aparece una guía/);
+ h.row.guide='GUIA-FICTICIA';h.book.rows.push({...h.row});
+ assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone).guides.length,1);
 });
-test('empty guides never become invented tracking; shipped UI scripts parse without HTML injection',async()=>{
- const h=harness();h.book.rows[0].guide='';const r=h.request('ADDI','MKT-123-01','cliente@example.com');
- assert.equal(h.verify(r.challenge,h.code()).order.items[0].guide,'');
+test('attempt cap blocks workbook access; module sends neither email nor personal data to OpenAI',()=>{
+ const h=harness();h.props.set('ORDER_DAY_V2','2026-10-25');h.props.set('ORDER_ATTEMPTS_V2','100');
+ assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone).ok,false);assert.equal(h.reads(),0);
+ assert.ok(!source.includes('MailApp'));assert.ok(!source.includes('UrlFetchApp'));
+ assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-v2:"));
+});
+test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is read-only',async()=>{
  const html=await readFile(new URL('Index.html',base),'utf8');
- const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];assert.equal(scripts.length,2);
- scripts.forEach(s=>new vm.Script(s[1]));assert.ok(!html.includes('innerHTML'));
+ const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];assert.equal(scripts.length,2);scripts.forEach(s=>new vm.Script(s[1]));
+ assert.ok(!html.includes('innerHTML'));assert.ok(!html.includes('verifyOrderCode'));assert.ok(html.includes('.lookupOrder('));
  new vm.Script(await readFile(new URL('Code.gs',base),'utf8'));
+ const manifest=JSON.parse(await readFile(new URL('appsscript.json',base),'utf8'));
+ assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/drive.readonly'));
+ assert.ok(!manifest.oauthScopes.some(s=>s.includes('send_mail')));
 });
