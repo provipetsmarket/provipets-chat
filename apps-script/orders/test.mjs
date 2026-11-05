@@ -26,6 +26,11 @@ test('all six combinations work without order number; result contains only guide
 test('full name accents/case and Colombian phone formatting normalize consistently',()=>{
  const h=harness();assert.equal(h.lookup('name','  MARIA  PRUEBA ','phone','+57 (300) 123-4567').ok,true);
  assert.equal(h.lookup('name','Maria','phone','3001234567').ok,false);
+ const j=harness();j.row.name='Jhon Fredy Soto Arboleda';
+ assert.equal(j.lookup('name','Jhon Soto','phone','3001234567').ok,true);
+ assert.equal(j.lookup('name','Jhon Fredy Soto','phone','3001234567').ok,true);
+ assert.equal(j.lookup('name','Jhon Pérez','phone','3001234567').ok,false);
+ assert.equal(j.lookup('name','Fredy Arboleda','phone','3001234567').ok,false);
  assert.equal(h.lookup('name','Maria Otra','phone','3001234567').ok,false);
  assert.equal(h.lookup('email','CLIENTE@EXAMPLE.COM','document','12.345.678').ok,true);
 });
@@ -54,7 +59,7 @@ test('attempt cap blocks workbook access; module sends neither email nor persona
  const h=harness();h.props.set('ORDER_DAY_V2','2026-10-25');h.props.set('ORDER_ATTEMPTS_V2','100');
  assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone).ok,false);assert.equal(h.reads(),0);
  assert.ok(!source.includes('MailApp'));assert.ok(!source.includes('UrlFetchApp'));
- assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-v3:"));
+ assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-sheets-v1:"));
 });
 test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is read-only',async()=>{
  const html=await readFile(new URL('Index.html',base),'utf8');
@@ -66,15 +71,27 @@ test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is re
  assert.ok(!manifest.oauthScopes.some(s=>s.includes('send_mail')));
 });
 
-test('fast XLSX reader decodes rich text, inline cells and sparse rows without XML service',()=>{
- const sheet='<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>PLATAFORMA</t></is></c><c r="B1" t="inlineStr"><is><t>ORDEN</t></is></c><c r="C1" t="inlineStr"><is><t>Nombre</t></is></c><c r="D1" t="inlineStr"><is><t>Guia</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>ADDI</t></is></c><c r="B2" t="inlineStr"><is><t>TEST-01</t></is></c><c r="C2" t="s"><v>0</v></c><c r="D2"><v>123456789</v></c><c r="E2"/></row><row r="1048576"><c r="A1048576"/></row></sheetData></worksheet>';
- const xml={'xl/sharedStrings.xml':'<sst><si><r><t>Mar&#237;a </t></r><r><t>Prueba &amp; Otra</t></r><rPh><t>IGNORE</t></rPh></si></sst>','xl/worksheets/sheet1.xml':sheet};
- const blobs=Object.entries(xml).map(([name,text])=>({getName:()=>name,getBytes:()=>new Uint8Array(Buffer.byteLength(text)),getDataAsString:()=>text}));
- const cache=new Map(),file={getLastUpdated:()=>new Date('2026-10-25'),getSize:()=>1234,getMimeType:()=> 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',getBlob:()=>({setContentType:()=>({})})};let unzips=0;
- const ctx=vm.createContext({PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'TEST'})},DriveApp:{getFileById:()=>file},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},Utilities:{unzip:()=>{unzips++;return blobs;}}});
- vm.runInContext(source,ctx);const book=ctx.readOrderWorkbook_();assert.equal(book.rows.length,1);assert.equal(book.rows[0].name,'María Prueba & Otra');assert.equal(book.rows[0].guide,'123456789');ctx.readOrderWorkbook_();assert.equal(unzips,1);
+test('Google Sheets reader selects the configured GID and maps headers without editing the sheet',()=>{
+ const props=new Map([['ORDERS_SPREADSHEET_ID','SHEET_TEST'],['ORDERS_SHEET_GID','513838687']]);
+ const rows=[
+  ['PLATAFORMA','ORDEN','SKU','PRODUCTO','UNDS','Guia','ESTADO','ESTADO GUÍA','GRUPOS','DESPACHO','TRANSPORTADORA','Nombre','Documento','Email','Telefono','Dirección','Ciudad','Departamento','FACTURADO'],
+  ['ADDI','TEST-01','SKU-1','Alimento ficticio','1','GUIA-123','','','','','Servientrega','Jhon Fredy Soto Arboleda','12345678','cliente@example.com','3001234567','','Medellín','Antioquia','SI']
+ ];
+ let opened='',selected=-1;
+ const sheet={getSheetId:()=>513838687,getDataRange:()=>({getDisplayValues:()=>rows})};
+ const ctx=vm.createContext({
+  PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k)||null})},
+  DriveApp:{getFileById:id=>({getLastUpdated:()=>new Date('2026-10-25')})},
+  SpreadsheetApp:{openById:id=>{opened=id;return {getSheets:()=>[sheet]};}},
+  CacheService:{getScriptCache:()=>({get:()=>null,put:()=>{}})},
+  Utilities:{formatDate:()=> '2026-10-25'}
+ });
+ vm.runInContext(source,ctx);
+ const book=ctx.readOrderWorkbook_();
+ assert.equal(opened,'SHEET_TEST');assert.equal(book.rows.length,1);
+ assert.equal(book.rows[0].name,'Jhon Fredy Soto Arboleda');
+ assert.equal(book.rows[0].guide,'GUIA-123');assert.equal(book.rows[0].carrier,'Servientrega');
 });
-
 test('carrier stays paired with verified guide; missing or conflicting values are never guessed',()=>{
  for(const [raw,label] of [['SERVIENTREGA','Servientrega'],['Envia','Envía'],['Interrapidísimo','Inter Rapidísimo'],['',''],['Otro dato','']]){
   const h=harness();h.row.carrier=raw;const r=h.lookup('email',h.row.email,'phone',h.row.phone);assert.equal(r.shipments[0].guide,h.row.guide);assert.equal(r.shipments[0].carrier,label);
