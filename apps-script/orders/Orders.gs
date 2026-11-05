@@ -85,8 +85,8 @@ function orderNumber_(value) {
   return /^[A-Z0-9][A-Z0-9_-]{0,99}$/.test(s) ? s : '';
 }
 function orderNameMatches_(registered, supplied) {
-  var full=orderHeader_(registered).replace(/[^A-Z0-9 ]/g,' ').replace(/\\s+/g,' ').trim().split(' ').filter(Boolean);
-  var query=orderHeader_(supplied).replace(/[^A-Z0-9 ]/g,' ').replace(/\\s+/g,' ').trim().split(' ').filter(Boolean);
+  var full=orderHeader_(registered).replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim().split(' ').filter(Boolean);
+  var query=orderHeader_(supplied).replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim().split(' ').filter(Boolean);
   if(full.length<2 || query.length<2 || query.length>full.length) return false;
   // The first supplied word must match the registered first name; every other
   // supplied word must match a distinct registered token (e.g. JHON SOTO).
