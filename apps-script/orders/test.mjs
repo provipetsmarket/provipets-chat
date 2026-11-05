@@ -59,7 +59,7 @@ test('attempt cap blocks workbook access; module sends neither email nor persona
  const h=harness();h.props.set('ORDER_DAY_V2','2026-10-25');h.props.set('ORDER_ATTEMPTS_V2','100');
  assert.equal(h.lookup('email',h.row.email,'phone',h.row.phone).ok,false);assert.equal(h.reads(),0);
  assert.ok(!source.includes('MailApp'));assert.ok(!source.includes('UrlFetchApp'));
- assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-v3:"));
+ assert.ok(!source.includes('requestOrderCode'));assert.ok(source.includes("orders-sheets-v1:"));
 });
 test('client and bundle parse; no OTP or raw HTML rendering remains; Drive is read-only',async()=>{
  const html=await readFile(new URL('Index.html',base),'utf8');
