@@ -28,11 +28,11 @@
   <nav class="tabs" aria-label="Tipo de consulta"><button id="catalog-tab" type="button" aria-pressed="true">Productos</button><button id="orders-tab" type="button" aria-pressed="false">Consultar mi pedido</button></nav>
   <section id="orders" aria-label="Consulta de guías" hidden>
     <h2>Consulta la guía de tu compra</h2>
-    <p>Ingresa dos datos distintos que registraste al comprar. No necesitas el número de orden. Aplica para Provipets y marketplaces.</p>
+    <p>Ingresa dos datos distintos que registraste al comprar. Para el nombre, puedes escribir tu primer nombre y un apellido (por ejemplo, Jhon Soto). No necesitas el número de orden. Aplica para Provipets y marketplaces.</p>
     <form id="order-request">
-      <label>Primer dato<select id="order-type-1"><option value="name">Nombre completo</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
-      <label><span id="order-label-1">Nombre completo</span><input id="order-value-1" required maxlength="254" autocomplete="off"></label>
-      <label>Segundo dato<select id="order-type-2"><option value="name">Nombre completo</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
+      <label>Primer dato<select id="order-type-1"><option value="name">Nombre</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
+      <label><span id="order-label-1">Nombre</span><input id="order-value-1" required maxlength="254" autocomplete="off"></label>
+      <label>Segundo dato<select id="order-type-2"><option value="name">Nombre</option><option value="phone">Teléfono</option><option value="email">Correo</option><option value="document">Cédula</option></select></label>
       <label><span id="order-label-2">Teléfono</span><input id="order-value-2" required maxlength="254" autocomplete="off"></label>
       <label id="product-clue" hidden>Producto comprado<input id="order-product" maxlength="200" placeholder="Escribe el nombre del producto que esperas" autocomplete="off"></label>
       <button id="order-send" type="submit">Consultar guía</button>
@@ -103,7 +103,7 @@
 <script>
 (() => {
   const byId=id=>document.getElementById(id);
-  const labels={name:'Nombre completo',phone:'Teléfono',email:'Correo',document:'Cédula'};
+  const labels={name:'Nombre',phone:'Teléfono',email:'Correo',document:'Cédula'};
   const status=byId('order-status');
   let working=false;
   byId('order-type-2').value='phone';
@@ -114,7 +114,7 @@
       const input=byId('order-value-'+i);
       input.type=kind==='email'?'email':'text';
       input.inputMode=(kind==='phone'||kind==='document')?'numeric':'text';
-      input.placeholder=kind==='name'?'Nombre completo usado al comprar':labels[kind]+' de la compra';
+      input.placeholder=kind==='name'?'Nombre y apellido como aparecen en tu compra':labels[kind]+' de la compra';
     }
   }
   function switchTab(orders){
