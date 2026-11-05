@@ -127,7 +127,7 @@ function readOrderWorkbook_() {
   for(var h=0;h<Math.min(values.length,10);h++){
     var candidate={};
     values[h].forEach(function(v,i){var key=orderHeader_(v);if(key)candidate[key]=i;});
-    if(candidate.PLATAFORMA && (candidate.ORDEN!==undefined || candidate.PEDIDO!==undefined || candidate['NUMERO DE PEDIDO']!==undefined)){
+    if(candidate.PLATAFORMA!==undefined && (candidate.ORDEN!==undefined || candidate.PEDIDO!==undefined || candidate['NUMERO DE PEDIDO']!==undefined)){
       headerRow=h;headers=candidate;break;
     }
   }
